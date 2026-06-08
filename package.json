@@ -1,0 +1,251 @@
+{
+  "name": "opencow",
+  "productName": "OpenCow",
+  "version": "0.3.21",
+  "description": "Task-driven autonomous AI agent platform",
+  "packageManager": "pnpm@10.13.1",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "predev": "pnpm exec electron-rebuild -f -w better-sqlite3,node-pty",
+    "dev": "node scripts/dev.mjs",
+    "dev:wt": "node scripts/dev-worktree.mjs",
+    "build": "electron-vite build",
+    "preview": "OPENCOW_ENV=production electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "pretest": "bash scripts/rebuild-better-sqlite3.sh node",
+    "test": "vitest run",
+    "pretest:watch": "bash scripts/rebuild-better-sqlite3.sh node",
+    "test:watch": "vitest",
+    "package": "node scripts/package-macos.mjs --dir",
+    "package:dmg": "node scripts/package-macos.mjs",
+    "package:dmg:arm64": "node scripts/package-macos.mjs --arm64",
+    "package:dmg:x64": "node scripts/package-macos.mjs --x64",
+    "package:dmg:universal": "node scripts/package-macos.mjs --universal",
+    "package:dmg:all": "node scripts/package-macos.mjs --arm64 --x64",
+    "postinstall": "bash scripts/patch-electron-name.sh",
+    "check:brand": "node scripts/check-brand.mjs"
+  },
+  "keywords": [
+    "claude-code",
+    "task-management",
+    "electron"
+  ],
+  "author": "OpenCow Contributors",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OpenCowAI/opencow.git"
+  },
+  "homepage": "https://github.com/OpenCowAI/opencow",
+  "bugs": {
+    "url": "https://github.com/OpenCowAI/opencow/issues"
+  },
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=9"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.64",
+    "@ai-sdk/openai": "^3.0.48",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.83",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@gitbeaker/rest": "^43.8.0",
+    "@iarna/toml": "^2.2.5",
+    "@larksuiteoapi/node-sdk": "^1.59.0",
+    "@linear/sdk": "^80.0.0",
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "@monaco-editor/react": "^4.7.0",
+    "@nivo/bar": "^0.99.0",
+    "@nivo/calendar": "^0.99.0",
+    "@nivo/core": "^0.99.0",
+    "@openai/codex-sdk": "^0.115.0",
+    "@tailwindcss/vite": "^4.2.0",
+    "@tiptap/core": "^3.20.0",
+    "@tiptap/extension-document": "^3.20.0",
+    "@tiptap/extension-hard-break": "^3.20.0",
+    "@tiptap/extension-history": "^3.20.0",
+    "@tiptap/extension-paragraph": "^3.20.0",
+    "@tiptap/extension-placeholder": "^3.20.0",
+    "@tiptap/extension-text": "^3.20.0",
+    "@tiptap/pm": "^3.20.0",
+    "@tiptap/react": "^3.20.0",
+    "@tiptap/suggestion": "^3.20.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "ai": "^6.0.141",
+    "beautiful-mermaid": "^1.0.2",
+    "better-sqlite3": "^12.6.2",
+    "chokidar": "^5.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "discord.js": "^14.25.1",
+    "grammy": "^1.40.1",
+    "highlight.js": "^11.11.1",
+    "i18next": "^25.8.13",
+    "kysely": "^0.28.14",
+    "lucide-react": "^0.575.0",
+    "monaco-editor": "^0.55.1",
+    "nanoid": "^5.1.6",
+    "node-pty": "^1.1.0",
+    "octokit": "^5.0.5",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.4",
+    "react-day-picker": "^9.14.0",
+    "react-dom": "^19.2.4",
+    "react-i18next": "^16.5.4",
+    "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^4.6.5",
+    "react-virtuoso": "^4.18.3",
+    "rehype-highlight": "^7.0.2",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
+    "socks": "^2.8.7",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.0",
+    "tippy.js": "^6.3.7",
+    "undici": "^7.24.0",
+    "ws": "^8.19.0",
+    "yaml": "^2.8.3",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.11"
+  },
+  "build": {
+    "appId": "com.opencow.app",
+    "productName": "OpenCow",
+    "publish": null,
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**/*.node",
+      "**/node_modules/node-pty/**/*.node",
+      "**/node_modules/@openai/codex-*/vendor/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/tray.png",
+        "to": "tray.png"
+      },
+      {
+        "from": "resources/tray@2x.png",
+        "to": "tray@2x.png"
+      },
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "mac": {
+      "icon": "resources/icon.icns",
+      "x64ArchFiles": "Contents/Resources/app.asar.unpacked/**",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.plist",
+      "notarize": true,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "extendInfo": {
+        "SoftResourceLimits": {
+          "NumberOfFiles": 10240
+        }
+      }
+    },
+    "dmg": {
+      "iconSize": 128,
+      "contents": [
+        {
+          "x": 150,
+          "y": 190,
+          "type": "file"
+        },
+        {
+          "x": 390,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "win": {
+      "icon": "resources/icon.png"
+    },
+    "linux": {
+      "icon": "resources/icon.png"
+    }
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "better-sqlite3",
+      "node-pty"
+    ],
+    "overrides": {
+      "rollup": "^4.59.0",
+      "minimatch@>=10.0.0 <10.2.3": "^10.2.3",
+      "tar@>=7.0.0 <7.5.11": "^7.5.11",
+      "picomatch@>=4.0.0 <4.0.4": "^4.0.4",
+      "lodash@>=4.0.0 <4.18.0": "^4.18.1",
+      "hono": "^4.12.7",
+      "@hono/node-server": "^1.19.10",
+      "express-rate-limit": "^8.2.2",
+      "flatted": "^3.4.2",
+      "undici@<7": "^6.24.0",
+      "path-to-regexp@>=8.0.0 <8.4.0": "^8.4.0"
+    }
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@electron/rebuild": "^4.0.4",
+    "@eslint/js": "^10.0.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.3.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "electron": "^40.6.0",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^5.0.0",
+    "eslint": "10.0.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "jsdom": "^28.1.0",
+    "prettier": "^3.8.1",
+    "react-grab": "^0.1.19",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.0",
+    "vite": "^7.3.2",
+    "vitest": "^4.0.18"
+  }
+}

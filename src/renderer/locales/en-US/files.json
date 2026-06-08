@@ -1,0 +1,113 @@
+{
+  "editor": {
+    "saveFile": "Save File",
+    "emptyStateTitle": "Editor",
+    "openFilePrompt": "Open a file from the tree to start editing",
+    "emptyStateHint": "Tip: click any file in the left tree to open it here.",
+    "modified": "Modified",
+    "openFilesAria": "Open files",
+    "unsavedChanges": "Unsaved changes",
+    "previewModeAria": "Editor preview mode",
+    "markdownContents": "Contents",
+    "unableToPreviewImage": "Unable to preview image",
+    "closeFile": "Close {{name}}",
+    "close": "Close",
+    "closeOthers": "Close Others",
+    "closeToRight": "Close Tabs to the Right",
+    "closeAll": "Close All",
+    "tabMenuAria": "Tab actions",
+    "loadingEditor": "Loading editor…",
+    "changedCount_one": "{{count}} changed",
+    "changedCount_other": "{{count}} changed"
+  },
+  "browser": {
+    "loading": "Loading...",
+    "emptyDirectory": "Empty directory",
+    "fileListAria": "File list",
+    "fileGridAria": "File icon grid",
+    "columns": {
+      "name": "Name",
+      "size": "Size",
+      "modified": "Modified"
+    },
+    "openFolderAria": "Open folder {{name}}",
+    "openFileAria": "Open file {{name}}",
+    "folderMeta": "Modified {{modified}}",
+    "fileMeta": "{{size}} · {{modified}}",
+    "previewModeAria": "Preview mode",
+    "source": "Source",
+    "closePreview": "Close preview",
+    "unableToRead": "Unable to read file"
+  },
+  "tree": {
+    "aria": "File tree"
+  },
+  "view": {
+    "modeSwitchAria": "Files view mode",
+    "editorMode": "IDE editor mode",
+    "browserMode": "File browser mode",
+    "selectProject": "Select a project to view files",
+    "editorTab": "Editor",
+    "browserTab": "Browser"
+  },
+  "search": {
+    "openButton": "Search",
+    "openButtonAria": "Search files",
+    "shortcutHint": "Search files (⌘/Ctrl+F)",
+    "fabAria": "Open file search",
+    "shortcutChip": "⌘/Ctrl+F"
+  },
+  "searchOverlay": {
+    "dialogAria": "File search",
+    "searchPlaceholder": "Search files...",
+    "searchInputAria": "Search files",
+    "lineIndicator": "line {{line}}",
+    "resultsAria": "File search results",
+    "searching": "Searching...",
+    "emptyResults": "No matching files",
+    "actions": {
+      "open": "Open",
+      "openFolder": "Open folder",
+      "revealInTree": "Reveal in tree",
+      "openInEditor": "Open in editor",
+      "revealParent": "Reveal parent",
+      "reveal": "Reveal"
+    },
+    "shortcuts": {
+      "navigate": "↑↓ Navigate",
+      "editorPrefix": "⌘/Ctrl+Enter",
+      "revealPrefix": "Alt+Enter",
+      "close": "Esc Close"
+    }
+  },
+  "actions": {
+    "itemMenuAria": "File actions",
+    "newFile": "New File",
+    "newFolder": "New Folder",
+    "newFilePlaceholder": "Enter file name",
+    "newFolderPlaceholder": "Enter folder name",
+    "createIn": "Create in",
+    "createConfirm": "Create",
+    "createInvalidName": "Please enter a valid name.",
+    "createFailed": "Create failed.",
+    "createFileSuccess": "File created.",
+    "createFolderSuccess": "Folder created.",
+    "renameFile": "Rename File",
+    "renameFolder": "Rename Folder",
+    "deleteFile": "Delete File",
+    "deleteFolder": "Delete Folder",
+    "renameInvalidName": "Please enter a valid name.",
+    "renameFailed": "Rename failed.",
+    "renameSuccess": "Renamed.",
+    "deleteFailed": "Delete failed.",
+    "deleteSuccess": "Deleted.",
+    "undoDelete": "Undo",
+    "undoDeleteFailed": "Undo delete failed.",
+    "undoDeleteSuccess": "Restore completed.",
+    "deleteConfirm": "Delete",
+    "deleteFileConfirmTitle": "Delete \"{{name}}\"?",
+    "deleteFolderConfirmTitle": "Delete folder \"{{name}}\"?",
+    "deleteFileConfirmMessage": "This action cannot be undone.",
+    "deleteFolderConfirmMessage": "All files and folders inside will also be deleted. This action cannot be undone."
+  }
+}

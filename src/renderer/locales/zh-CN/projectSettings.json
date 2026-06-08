@@ -1,0 +1,187 @@
+{
+  "title": "项目设置",
+  "closeAria": "关闭项目设置",
+  "tabs": {
+    "ariaLabel": "项目设置标签页",
+    "general": "通用",
+    "browser": "浏览器",
+    "issueIntegration": "Issue 集成"
+  },
+  "general": {
+    "title": "通用",
+    "description": "设置项目级默认入口页与 Chat 版面偏好。",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "设置已保存",
+    "saveFailed": "保存失败",
+    "projectNotFound": "未找到项目。",
+    "defaultTab": {
+      "title": "默认顶部 Tab",
+      "description": "首次打开该项目时使用。",
+      "hints": {
+        "issues": "从 Issue 跟踪与处理开始。",
+        "chat": "直接进入 Chat 工作区。",
+        "schedule": "优先进入计划与执行视图。"
+      },
+      "options": {
+        "issues": "Issues",
+        "chat": "Chat",
+        "schedule": "Schedule"
+      }
+    },
+    "chatDefaultMode": {
+      "title": "Chat 默认版面",
+      "description": "选择默认使用极简模式或文件模式。",
+      "hints": {
+        "default": "对话优先，界面更专注。",
+        "files": "Chat 与 Files 并排，适合开发流。"
+      },
+      "options": {
+        "default": "极简",
+        "files": "文件"
+      }
+    },
+    "filesDefaultMode": {
+      "title": "文件默认陈列方式",
+      "description": "当 Chat 默认是文件模式时，选择 Files 的默认形态。",
+      "hints": {
+        "ide": "树形 + 标签 + 编辑器优先。",
+        "browser": "浏览器式文件探索与预览。"
+      },
+      "options": {
+        "ide": "编辑器",
+        "browser": "浏览器"
+      }
+    }
+  },
+  "browser": {
+    "title": "浏览器",
+    "description": "管理该项目的浏览器 Profile 默认行为。",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "设置已保存",
+    "saveFailed": "保存失败",
+    "projectNotFound": "未找到项目。",
+    "defaultStatePolicy": {
+      "title": "默认浏览器状态策略",
+      "description": "设置该项目中浏览器 Profile 状态的默认共享策略。",
+      "hints": {
+        "sharedGlobal": "跨项目、跨会话复用同一个全局浏览器 Profile。",
+        "sharedProject": "在当前项目内复用同一个浏览器 Profile。",
+        "isolatedIssue": "按 Issue 隔离浏览器状态，适合多账号并行运营。",
+        "isolatedSession": "按 Session 隔离浏览器状态，适合严格任务隔离。"
+      },
+      "options": {
+        "sharedGlobal": "共享：全局",
+        "sharedProject": "共享：项目",
+        "isolatedIssue": "隔离：Issue",
+        "isolatedSession": "隔离：Session"
+      }
+    },
+    "preview": {
+      "scope": {
+        "global": "全局",
+        "project": "项目",
+        "issue": "Issue",
+        "session": "Session"
+      }
+    }
+  },
+  "issueIntegration": {
+    "title": "Issue 集成",
+    "description": "连接 GitHub、GitLab 或 Linear，将远端 Issue 同步到本项目。",
+    "loading": "加载中…",
+    "addIntegration": "添加集成",
+    "noProviders": "尚未配置集成。",
+    "noProvidersHint": "连接 GitHub、GitLab 或 Linear 工作区以开始同步 Issue。",
+    "providerCard": {
+      "lastSynced": "上次同步",
+      "never": "从未同步",
+      "syncNow": "立即同步",
+      "syncing": "同步中...",
+      "enabled": "已启用",
+      "disabled": "已禁用",
+      "delete": "移除",
+      "deleteConfirm": "移除此集成？已同步的 Issue 将保留在本地数据库中。",
+      "deleteConfirmTitle": "移除集成",
+      "cancelDelete": "取消",
+      "syncFailed": "同步失败",
+      "updateFailed": "更新失败",
+      "deleteFailed": "删除失败",
+      "edit": "编辑"
+    }
+  },
+  "addProvider": {
+    "title": "添加 Issue 集成",
+    "stepPlatform": "选择平台",
+    "stepCredentials": "仓库与令牌",
+    "stepVerify": "验证连接",
+    "platform": {
+      "github": "GitHub",
+      "gitlab": "GitLab",
+      "githubDesc": "连接到 GitHub.com 或 GitHub Enterprise。",
+      "gitlabDesc": "连接到 GitLab.com 或自托管 GitLab。",
+      "linear": "Linear",
+      "linearDesc": "连接到 Linear 工作区。"
+    },
+    "repo": {
+      "owner": "所有者 / 组织",
+      "ownerPlaceholder": "例如 OpenCowAI",
+      "name": "仓库名称",
+      "namePlaceholder": "例如 opencow",
+      "orPasteUrl": "或直接粘贴仓库 URL",
+      "urlPlaceholder": "https://github.com/owner/repo"
+    },
+    "token": {
+      "label": "个人访问令牌",
+      "placeholder": "ghp_... 或 glpat-...",
+      "hint": "至少需要 Issue 读取权限。",
+      "helpLink": "如何创建令牌"
+    },
+    "linear": {
+      "teamKey": "Team Key",
+      "teamKeyPlaceholder": "例如 ENG",
+      "teamKeyHint": "Issue 标识符中的短前缀（如 ENG-42 中的 ENG）。",
+      "teamId": "Team ID",
+      "teamIdPlaceholder": "从 Linear 设置中获取的 UUID",
+      "teamIdHint": "在 Linear → Settings → Team → General 中查找。",
+      "teamIdInvalid": "必须是有效的 UUID 格式（如 550e8400-e29b-41d4-a716-446655440000）",
+      "tokenLabel": "API Key",
+      "tokenPlaceholder": "lin_api_...",
+      "tokenHint": "在 Linear → Settings → API → Personal API Keys 中创建。"
+    },
+    "apiBaseUrl": {
+      "label": "API 地址（可选）",
+      "placeholder": "https://gitlab.example.com/api/v4",
+      "hint": "仅自托管实例需要填写。"
+    },
+    "verify": {
+      "testing": "正在测试连接...",
+      "success": "连接成功！",
+      "failed": "连接失败",
+      "retry": "重试"
+    },
+    "actions": {
+      "back": "上一步",
+      "next": "下一步",
+      "connect": "连接",
+      "cancel": "取消"
+    }
+  },
+  "editProvider": {
+    "title": "编辑集成",
+    "syncInterval": "同步间隔",
+    "syncDirection": "同步方向",
+    "direction": {
+      "readonly": "只读（拉取远程变更）",
+      "push": "推送（推送本地变更）",
+      "bidirectional": "双向同步"
+    },
+    "newToken": "更新令牌",
+    "newTokenPlaceholder": "留空则保留当前令牌",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "设置已保存",
+    "saveFailed": "保存失败"
+  }
+}
