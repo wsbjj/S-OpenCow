@@ -33,6 +33,7 @@ describe('SettingsService', () => {
     expect(settings.eventSubscriptions.onError).toBe(true)
     expect(settings.eventSubscriptions.onComplete).toBe(true)
     expect(settings.eventSubscriptions.onStatusChange).toBe(true)
+    expect(settings.provider.backgroundModel).toEqual({ mode: 'inherit' })
     expect(settings.provider.byEngine.codex.defaultReasoningEffort).toBe('high')
   })
 
@@ -197,6 +198,81 @@ describe('SettingsService', () => {
     fresh = new SettingsService(join(tempDir, 'settings.json'))
     settings = await fresh.load()
     expect(settings.provider.byEngine.codex.defaultReasoningEffort).toBe('xhigh')
+  })
+
+  it('preserves valid background model settings', async () => {
+    await writeFile(
+      join(tempDir, 'settings.json'),
+      JSON.stringify({
+        provider: {
+          backgroundModel: {
+            mode: 'custom',
+            protocol: 'anthropic',
+            baseUrl: 'https://gateway.example/v1',
+            model: 'claude-3-5-haiku-latest',
+            authStyle: 'bearer',
+          },
+        },
+      }),
+      'utf-8'
+    )
+    const fresh = new SettingsService(join(tempDir, 'settings.json'))
+    const settings = await fresh.load()
+
+    expect(settings.provider.backgroundModel).toEqual({
+      mode: 'custom',
+      protocol: 'anthropic',
+      baseUrl: 'https://gateway.example/v1',
+      model: 'claude-3-5-haiku-latest',
+      authStyle: 'bearer',
+    })
+  })
+
+  it('preserves inherit-model background model settings and trims model', async () => {
+    await writeFile(
+      join(tempDir, 'settings.json'),
+      JSON.stringify({
+        provider: {
+          backgroundModel: {
+            mode: 'inherit-model',
+            model: '  gpt-background-inherited  ',
+            protocol: 'openai',
+            baseUrl: 'https://should-not-be-kept.example/v1',
+            authStyle: 'bearer',
+          },
+        },
+      }),
+      'utf-8'
+    )
+    const fresh = new SettingsService(join(tempDir, 'settings.json'))
+    const settings = await fresh.load()
+
+    expect(settings.provider.backgroundModel).toEqual({
+      mode: 'inherit-model',
+      model: 'gpt-background-inherited',
+    })
+  })
+
+  it('normalizes invalid background model settings to inherit', async () => {
+    await writeFile(
+      join(tempDir, 'settings.json'),
+      JSON.stringify({
+        provider: {
+          backgroundModel: {
+            mode: 'custom',
+            protocol: 'ollama',
+            baseUrl: 123,
+            model: '',
+            authStyle: 'basic',
+          },
+        },
+      }),
+      'utf-8'
+    )
+    const fresh = new SettingsService(join(tempDir, 'settings.json'))
+    const settings = await fresh.load()
+
+    expect(settings.provider.backgroundModel).toEqual({ mode: 'inherit' })
   })
 
   it('getEventSubscriptionSettings returns current event subscription settings', async () => {

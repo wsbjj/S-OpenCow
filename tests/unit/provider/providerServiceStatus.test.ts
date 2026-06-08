@@ -9,12 +9,15 @@ function createProviderServiceForStatusTest(params: {
   engineKind: AIEngineKind
   mode: ApiProvider | null
   adapter: ProviderAdapter
+  settingsPatch?: Partial<ProviderSettings>
+  backgroundApiKey?: string
 }): ProviderService {
   const settings: ProviderSettings = {
     byEngine: {
       claude: { activeMode: null },
       codex: { activeMode: null },
     },
+    ...params.settingsPatch,
   }
   settings.byEngine[params.engineKind].activeMode = params.mode
 
@@ -25,6 +28,11 @@ function createProviderServiceForStatusTest(params: {
   service.deps = {
     dispatch: () => {},
     credentialStoreByEngine: {} as never,
+    backgroundCredentialStore: {
+      get: async (key: 'apiKey') => key === 'apiKey' ? params.backgroundApiKey : undefined,
+      update: async () => {},
+      remove: async () => {},
+    },
     getProviderSettings: () => settings,
   }
   service.providersByEngine = new Map<AIEngineKind, Map<ApiProvider, ProviderAdapter>>([
@@ -89,5 +97,293 @@ describe('ProviderService.getStatus', () => {
     const status = await service.getStatus('codex')
     expect(status.state).toBe('authenticated')
     expect(status.mode).toBe('custom')
+  })
+})
+
+describe('ProviderService.resolveBackgroundHTTPAuth', () => {
+  it('inherits active engine HTTP auth when background model is not custom', async () => {
+    const adapter: ProviderAdapter = {
+      checkStatus: async () => ({ authenticated: true }),
+      getEnv: async () => ({}),
+      authenticate: async () => ({ authenticated: true }),
+      getHTTPAuth: async () => ({
+        apiKey: 'sk-ant-active',
+        baseUrl: 'https://api.anthropic.com',
+        authStyle: 'x-api-key',
+      }),
+      logout: async () => {},
+    }
+    const service = createProviderServiceForStatusTest({
+      engineKind: 'claude',
+      mode: 'api_key',
+      adapter,
+      settingsPatch: {
+        byEngine: {
+          claude: { activeMode: 'api_key', defaultModel: 'claude-active-model' },
+          codex: { activeMode: null },
+        },
+        backgroundModel: { mode: 'inherit' },
+      },
+    })
+
+    await expect(service.resolveBackgroundHTTPAuth('claude')).resolves.toEqual({
+      protocol: 'anthropic',
+      apiKey: 'sk-ant-active',
+      baseUrl: 'https://api.anthropic.com',
+      authStyle: 'x-api-key',
+      model: 'claude-active-model',
+    })
+  })
+
+  it('inherits current engine credentials and overrides only the background model name', async () => {
+    const adapter: ProviderAdapter = {
+      checkStatus: async () => ({ authenticated: true }),
+      getEnv: async () => ({}),
+      authenticate: async () => ({ authenticated: true }),
+      getHTTPAuth: async () => ({
+        apiKey: 'sk-ant-active',
+        baseUrl: 'https://api.anthropic.com',
+        authStyle: 'x-api-key',
+      }),
+      logout: async () => {},
+    }
+    const service = createProviderServiceForStatusTest({
+      engineKind: 'claude',
+      mode: 'api_key',
+      adapter,
+      settingsPatch: {
+        byEngine: {
+          claude: { activeMode: 'api_key', defaultModel: 'claude-active-model' },
+          codex: { activeMode: null },
+        },
+        backgroundModel: {
+          mode: 'inherit-model',
+          model: 'claude-background-override',
+        } as unknown as ProviderSettings['backgroundModel'],
+      },
+    })
+
+    await expect(service.resolveBackgroundHTTPAuth('claude')).resolves.toEqual({
+      protocol: 'anthropic',
+      apiKey: 'sk-ant-active',
+      baseUrl: 'https://api.anthropic.com',
+      authStyle: 'x-api-key',
+      model: 'claude-background-override',
+    })
+  })
+
+  it('keeps inherited Codex model when inherit-model background model is blank', async () => {
+    const adapter: ProviderAdapter = {
+      checkStatus: async () => ({ authenticated: true }),
+      getEnv: async () => ({}),
+      authenticate: async () => ({ authenticated: true }),
+      getCodexAuthConfig: async () => ({
+        apiKey: 'sk-openai-active',
+        baseUrl: 'https://openai-gateway.example/v1',
+      }),
+      logout: async () => {},
+    }
+    const service = createProviderServiceForStatusTest({
+      engineKind: 'codex',
+      mode: 'custom',
+      adapter,
+      settingsPatch: {
+        byEngine: {
+          claude: { activeMode: null },
+          codex: { activeMode: 'custom', defaultModel: 'gpt-5.5' },
+        },
+        backgroundModel: {
+          mode: 'inherit-model',
+        } as unknown as ProviderSettings['backgroundModel'],
+      },
+    })
+
+    await expect(service.resolveBackgroundHTTPAuth('codex')).resolves.toEqual({
+      protocol: 'openai',
+      apiKey: 'sk-openai-active',
+      baseUrl: 'https://openai-gateway.example/v1',
+      authStyle: 'bearer',
+      model: 'gpt-5.5',
+    })
+  })
+
+  it('keeps inherited Claude model when inherit-model background model is blank', async () => {
+    const adapter: ProviderAdapter = {
+      checkStatus: async () => ({ authenticated: true }),
+      getEnv: async () => ({}),
+      authenticate: async () => ({ authenticated: true }),
+      getHTTPAuth: async () => ({
+        apiKey: 'sk-ant-active',
+        baseUrl: 'https://api.anthropic.com',
+        authStyle: 'x-api-key',
+      }),
+      logout: async () => {},
+    }
+    const service = createProviderServiceForStatusTest({
+      engineKind: 'claude',
+      mode: 'api_key',
+      adapter,
+      settingsPatch: {
+        byEngine: {
+          claude: { activeMode: 'api_key', defaultModel: 'claude-active-model' },
+          codex: { activeMode: null },
+        },
+        backgroundModel: {
+          mode: 'inherit-model',
+        } as unknown as ProviderSettings['backgroundModel'],
+      },
+    })
+
+    await expect(service.resolveBackgroundHTTPAuth('claude')).resolves.toEqual({
+      protocol: 'anthropic',
+      apiKey: 'sk-ant-active',
+      baseUrl: 'https://api.anthropic.com',
+      authStyle: 'x-api-key',
+      model: 'claude-active-model',
+    })
+  })
+
+  it('resolves custom OpenAI-compatible background model auth', async () => {
+    const service = createProviderServiceForStatusTest({
+      engineKind: 'claude',
+      mode: null,
+      adapter: {} as ProviderAdapter,
+      backgroundApiKey: 'bg-openai-key',
+      settingsPatch: {
+        byEngine: {
+          claude: { activeMode: null },
+          codex: { activeMode: null },
+        },
+        backgroundModel: {
+          mode: 'custom',
+          protocol: 'openai',
+          baseUrl: 'https://gateway.example/v1',
+          model: 'gpt-background-mini',
+        },
+      },
+    })
+
+    await expect(service.resolveBackgroundHTTPAuth('claude')).resolves.toEqual({
+      protocol: 'openai',
+      apiKey: 'bg-openai-key',
+      baseUrl: 'https://gateway.example/v1',
+      authStyle: 'bearer',
+      model: 'gpt-background-mini',
+    })
+  })
+
+  it('resolves custom Anthropic background model auth with default x-api-key style', async () => {
+    const service = createProviderServiceForStatusTest({
+      engineKind: 'claude',
+      mode: null,
+      adapter: {} as ProviderAdapter,
+      backgroundApiKey: 'bg-anthropic-key',
+      settingsPatch: {
+        byEngine: {
+          claude: { activeMode: null },
+          codex: { activeMode: null },
+        },
+        backgroundModel: {
+          mode: 'custom',
+          protocol: 'anthropic',
+          baseUrl: 'https://anthropic-gateway.example/v1',
+          model: 'claude-background-mini',
+        },
+      },
+    })
+
+    await expect(service.resolveBackgroundHTTPAuth('claude')).resolves.toEqual({
+      protocol: 'anthropic',
+      apiKey: 'bg-anthropic-key',
+      baseUrl: 'https://anthropic-gateway.example/v1',
+      authStyle: 'x-api-key',
+      model: 'claude-background-mini',
+    })
+  })
+
+  it('resolves custom Anthropic background model auth with bearer style', async () => {
+    const service = createProviderServiceForStatusTest({
+      engineKind: 'claude',
+      mode: null,
+      adapter: {} as ProviderAdapter,
+      backgroundApiKey: 'bg-anthropic-bearer',
+      settingsPatch: {
+        byEngine: {
+          claude: { activeMode: null },
+          codex: { activeMode: null },
+        },
+        backgroundModel: {
+          mode: 'custom',
+          protocol: 'anthropic',
+          baseUrl: 'https://anthropic-gateway.example/v1',
+          model: 'claude-background-mini',
+          authStyle: 'bearer',
+        },
+      },
+    })
+
+    await expect(service.resolveBackgroundHTTPAuth('claude')).resolves.toMatchObject({
+      protocol: 'anthropic',
+      apiKey: 'bg-anthropic-bearer',
+      authStyle: 'bearer',
+    })
+  })
+
+  it('throws a clear error when custom background model is missing an API key', async () => {
+    const service = createProviderServiceForStatusTest({
+      engineKind: 'claude',
+      mode: null,
+      adapter: {} as ProviderAdapter,
+      settingsPatch: {
+        byEngine: {
+          claude: { activeMode: null },
+          codex: { activeMode: null },
+        },
+        backgroundModel: {
+          mode: 'custom',
+          protocol: 'openai',
+          baseUrl: 'https://gateway.example/v1',
+          model: 'gpt-background-mini',
+        },
+      },
+    })
+
+    await expect(service.resolveBackgroundHTTPAuth('claude')).rejects.toThrow('Background model is custom but missing API key')
+  })
+})
+
+describe('ProviderService background model credentials', () => {
+  it('stores, reads, and clears the background model API key via the credential store', async () => {
+    const state: { apiKey?: string } = {}
+    const service = Object.create(ProviderService.prototype) as ProviderService & {
+      deps: unknown
+      providersByEngine: unknown
+    }
+    service.deps = {
+      dispatch: () => {},
+      credentialStoreByEngine: {} as never,
+      backgroundCredentialStore: {
+        get: async (key: 'apiKey') => state[key],
+        update: async (key: 'apiKey', value: string) => {
+          state[key] = value
+        },
+        remove: async (key: 'apiKey') => {
+          delete state[key]
+        },
+      },
+      getProviderSettings: () => ({
+        byEngine: {
+          claude: { activeMode: null },
+          codex: { activeMode: null },
+        },
+        backgroundModel: { mode: 'inherit' },
+      }),
+    }
+    service.providersByEngine = new Map()
+
+    await expect(service.setBackgroundModelCredential({ apiKey: '  bg-key  ' })).resolves.toEqual({ apiKey: 'bg-key' })
+    await expect(service.getBackgroundModelCredential()).resolves.toEqual({ apiKey: 'bg-key' })
+    await expect(service.clearBackgroundModelCredential()).resolves.toBeUndefined()
+    await expect(service.getBackgroundModelCredential()).resolves.toBeNull()
   })
 })

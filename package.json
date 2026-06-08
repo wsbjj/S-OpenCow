@@ -6,9 +6,10 @@
   "packageManager": "pnpm@10.13.1",
   "main": "./out/main/index.js",
   "scripts": {
-    "predev": "pnpm exec electron-rebuild -f -w better-sqlite3,node-pty",
+    "predev": "node scripts/rebuild-electron-native.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:wt": "node scripts/dev-worktree.mjs",
+    "rebuild:native": "node scripts/rebuild-electron-native.mjs --force",
     "build": "electron-vite build",
     "preview": "OPENCOW_ENV=production electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",

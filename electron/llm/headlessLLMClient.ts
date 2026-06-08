@@ -15,6 +15,7 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createLogger } from '../platform/logger'
 import type { LLMAuthConfig, HeadlessLLMClient, HeadlessQueryParams, HeadlessClientDeps } from './types'
+import { toApiErrorLogContext } from './apiErrorLogContext'
 
 const log = createLogger('HeadlessLLMClient')
 
@@ -43,15 +44,25 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
 
     const model = this.createModel(auth, fetchFn)
 
-    const { text } = await generateText({
-      model,
-      system: params.systemPrompt,
-      prompt: params.userMessage,
-      maxOutputTokens: maxTokens,
-      abortSignal: AbortSignal.timeout(timeoutMs),
-    })
+    try {
+      const { text } = await generateText({
+        model,
+        system: params.systemPrompt,
+        prompt: params.userMessage,
+        maxOutputTokens: maxTokens,
+        abortSignal: AbortSignal.timeout(timeoutMs),
+      })
 
-    return text
+      return text
+    } catch (err) {
+      log.error('HeadlessLLMClient query failed', {
+        protocol: auth.protocol,
+        model: auth.model,
+        baseUrl: auth.baseUrl,
+        ...toApiErrorLogContext(err),
+      }, err)
+      throw err
+    }
   }
 
   /**
@@ -79,8 +90,10 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
       return provider(auth.model)
     }
 
-    // @ai-sdk/openai expects baseURL to include /v1 (default: https://api.openai.com/v1)
-    // and appends /chat/completions to it.
+    // Use Chat Completions for headless memory extraction. The AI SDK's default
+    // OpenAI model path uses Responses API, where some OpenAI-compatible gateways
+    // require top-level `instructions`; chat models map `system`/`prompt` to the
+    // broadly supported messages shape instead.
     const baseURL = auth.baseUrl.endsWith('/v1')
       ? auth.baseUrl
       : `${auth.baseUrl.replace(/\/+$/, '')}/v1`
@@ -90,6 +103,6 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
       baseURL,
       fetch: fetchFn,
     })
-    return provider(auth.model)
+    return provider.chat(auth.model)
   }
 }

@@ -19,6 +19,7 @@
 import type {
   AIEngineKind,
   ApiProvider,
+  BackgroundModelCredentialInfo,
   ProviderSettings,
   ProviderStatus,
   ProviderCredentialInfo,
@@ -34,10 +35,10 @@ import { CustomProvider } from './providers/custom'
 import { createLogger } from '../../platform/logger'
 
 const log = createLogger('ProviderService')
-
 export interface ProviderServiceDeps {
   dispatch: (event: DataBusEvent) => void
   credentialStoreByEngine: Record<AIEngineKind, CredentialStore>
+  backgroundCredentialStore: CredentialStore<{ apiKey?: string }>
   /** Returns current provider settings (non-sensitive config). */
   getProviderSettings: () => ProviderSettings
   /** Bring the app window to the foreground (called after successful auth). */
@@ -281,6 +282,27 @@ export class ProviderService {
     return provider.getCredential()
   }
 
+  async getBackgroundModelCredential(): Promise<BackgroundModelCredentialInfo | null> {
+    const apiKey = await this.deps.backgroundCredentialStore.get('apiKey')
+    return apiKey ? { apiKey } : null
+  }
+
+  async setBackgroundModelCredential(
+    credential: BackgroundModelCredentialInfo,
+  ): Promise<BackgroundModelCredentialInfo | null> {
+    const apiKey = typeof credential.apiKey === 'string' ? credential.apiKey.trim() : ''
+    if (!apiKey) {
+      await this.deps.backgroundCredentialStore.remove('apiKey')
+      return null
+    }
+    await this.deps.backgroundCredentialStore.update('apiKey', apiKey)
+    return { apiKey }
+  }
+
+  async clearBackgroundModelCredential(): Promise<void> {
+    await this.deps.backgroundCredentialStore.remove('apiKey')
+  }
+
   /**
    * Resolve structured HTTP auth for direct LLM API calls.
    *
@@ -339,6 +361,51 @@ export class ProviderService {
       baseUrl: httpAuth.baseUrl,
       authStyle: httpAuth.authStyle,
       model: engineSettings.defaultModel ?? 'claude-sonnet-4-20250514',
+    }
+  }
+
+  async resolveBackgroundHTTPAuth(fallbackEngine: AIEngineKind): Promise<LLMAuthConfig> {
+    const settings = this.deps.getProviderSettings()
+    const backgroundModel = settings.backgroundModel ?? { mode: 'inherit' }
+
+    if (backgroundModel.mode === 'inherit') {
+      return this.resolveHTTPAuth(fallbackEngine)
+    }
+
+    if (backgroundModel.mode === 'inherit-model') {
+      const inheritedAuth = await this.resolveHTTPAuth(fallbackEngine)
+      const model = typeof backgroundModel.model === 'string' && backgroundModel.model.trim()
+        ? backgroundModel.model.trim()
+        : undefined
+      if (model) {
+        return { ...inheritedAuth, model }
+      }
+      return inheritedAuth
+    }
+
+    if (!backgroundModel.protocol) {
+      throw new Error('Background model is custom but missing protocol')
+    }
+    if (!backgroundModel.baseUrl) {
+      throw new Error('Background model is custom but missing base URL')
+    }
+    if (!backgroundModel.model) {
+      throw new Error('Background model is custom but missing model')
+    }
+
+    const credential = await this.getBackgroundModelCredential()
+    if (!credential?.apiKey) {
+      throw new Error('Background model is custom but missing API key')
+    }
+
+    return {
+      protocol: backgroundModel.protocol,
+      apiKey: credential.apiKey,
+      baseUrl: backgroundModel.baseUrl,
+      authStyle: backgroundModel.protocol === 'openai'
+        ? 'bearer'
+        : (backgroundModel.authStyle ?? 'x-api-key'),
+      model: backgroundModel.model,
     }
   }
 

@@ -590,6 +590,12 @@ export interface IPCChannels {
     args: [engineKind: AIEngineKind, mode: ApiProvider]
     return: ProviderCredentialInfo | null
   }
+  'background-model:get-credential': { args: []; return: BackgroundModelCredentialInfo | null }
+  'background-model:set-credential': {
+    args: [credential: BackgroundModelCredentialInfo]
+    return: BackgroundModelCredentialInfo | null
+  }
+  'background-model:clear-credential': { args: []; return: boolean }
   // Webhooks
   'webhook:test': { args: [endpoint: WebhookEndpoint]; return: WebhookTestResult }
   // Messaging — unified multi-platform IM API
@@ -3663,9 +3669,29 @@ export interface ProviderEngineSettings {
   defaultReasoningEffort?: CodexReasoningEffort
 }
 
+export type BackgroundModelMode = 'inherit' | 'inherit-model' | 'custom'
+
+export type BackgroundModelProtocol = 'openai' | 'anthropic'
+
+export type BackgroundModelAuthStyle = 'x-api-key' | 'bearer'
+
+/** Global headless/background task model config. API keys live in CredentialStore. */
+export interface BackgroundModelSettings {
+  mode: BackgroundModelMode
+  protocol?: BackgroundModelProtocol
+  baseUrl?: string
+  model?: string
+  authStyle?: BackgroundModelAuthStyle
+}
+
+export interface BackgroundModelCredentialInfo {
+  apiKey?: string
+}
+
 /** Engine-scoped provider configuration. */
 export interface ProviderSettings {
   byEngine: Record<AIEngineKind, ProviderEngineSettings>
+  backgroundModel?: BackgroundModelSettings
 }
 
 // === Update Settings ===

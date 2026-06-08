@@ -88,6 +88,9 @@ const invokeChannels: (keyof IPCChannels)[] = [
   'provider:cancel-login',
   'provider:logout',
   'provider:get-credential',
+  'background-model:get-credential',
+  'background-model:set-credential',
+  'background-model:clear-credential',
   // Webhooks
   'webhook:test',
   // Messaging — unified IM

@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { openSync, writeSync, closeSync, statSync, renameSync, mkdirSync } from 'node:fs'
+import { openSync, writeSync, closeSync, statSync, renameSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { LOG_LEVEL_VALUE, formatLogEntry } from '@shared/logger'
 import type { LogLevel, Logger, LogEntry } from '@shared/logger'
 
 // === Config ===
+
+const UTF8_BOM = '\uFEFF'
+const UTF8_BOM_BYTES = Buffer.from(UTF8_BOM, 'utf-8')
 
 export interface LoggerConfig {
   /** Log file directory */
@@ -88,6 +91,7 @@ class FileTransport {
 
   private open(): void {
     try {
+      this.ensureUtf8Bom()
       this.fd = openSync(this.filePath, 'a')
       try {
         this.currentSize = statSync(this.filePath).size
@@ -102,6 +106,30 @@ class FileTransport {
         console.error(`[Logger] Failed to open log file: ${this.filePath}`)
       }
     }
+  }
+
+  private ensureUtf8Bom(): void {
+    let content: Buffer
+    try {
+      content = readFileSync(this.filePath)
+    } catch (err) {
+      if (isEnoent(err)) {
+        writeFileSync(this.filePath, UTF8_BOM)
+        return
+      }
+      throw err
+    }
+
+    if (content.length === 0) {
+      writeFileSync(this.filePath, UTF8_BOM)
+      return
+    }
+
+    if (content.subarray(0, UTF8_BOM_BYTES.length).equals(UTF8_BOM_BYTES)) {
+      return
+    }
+
+    writeFileSync(this.filePath, Buffer.concat([UTF8_BOM_BYTES, content]))
   }
 
   private rotate(): void {
@@ -119,6 +147,10 @@ class FileTransport {
     }
     this.open()
   }
+}
+
+function isEnoent(err: unknown): boolean {
+  return err instanceof Error && 'code' in err && (err as { code: string }).code === 'ENOENT'
 }
 
 // === Module-level singleton ===
@@ -174,6 +206,7 @@ export function writeLogEntry(entry: LogEntry): void {
         ? console.error
         : entry.level === 'warn'
           ? console.warn
+          // eslint-disable-next-line no-console
           : console.log
     fn(line)
   }

@@ -204,7 +204,6 @@ export async function createAppServices(deps: ServiceFactoryDeps): Promise<AppSe
   const managedSessionStore = new ManagedSessionStore(database.db)
 
   // Forward-declare for circular references (schedule engine ↔ services)
-  // eslint-disable-next-line prefer-const
   let projectService!: ProjectService
   // eslint-disable-next-line prefer-const
   let scheduleService!: ScheduleService
@@ -294,12 +293,15 @@ export async function createAppServices(deps: ServiceFactoryDeps): Promise<AppSe
     }
   }
   const codexCredentialStore = new CredentialStore(codexCredentialsPath)
+  const backgroundModelCredentialsPath = join(dataPaths.root, 'credentials-background-model.enc')
+  const backgroundModelCredentialStore = new CredentialStore<{ apiKey?: string }>(backgroundModelCredentialsPath)
   const providerService = new ProviderService({
     dispatch: (e) => bus.dispatch(e),
     credentialStoreByEngine: {
       claude: claudeCredentialStore,
       codex: codexCredentialStore,
     },
+    backgroundCredentialStore: backgroundModelCredentialStore,
     getProviderSettings: () => settingsService.getProviderSettings(),
     focusApp: focusMainWindow,
   })
@@ -639,7 +641,7 @@ export async function createAppServices(deps: ServiceFactoryDeps): Promise<AppSe
         settingsService.getProviderSettings(),
         settingsService.getCommandDefaults().defaultEngine,
       )
-      return providerService.resolveHTTPAuth(engine)
+      return providerService.resolveBackgroundHTTPAuth(engine)
     },
     getFetch: () => proxyFetchFactory.getStandardFetch(),
   })

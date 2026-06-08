@@ -1005,6 +1005,14 @@ export function registerIPCHandlers(deps: IPCDeps): void {
     })
     registerHandler('provider:get-credential', (engineKind, mode) =>
       providerService.getCredential(engineKind, mode))
+    registerHandler('background-model:get-credential', () =>
+      providerService.getBackgroundModelCredential())
+    registerHandler('background-model:set-credential', (credential) =>
+      providerService.setBackgroundModelCredential(credential))
+    registerHandler('background-model:clear-credential', async () => {
+      await providerService.clearBackgroundModelCredential()
+      return true
+    })
   }
 
   // --- Command handlers ---

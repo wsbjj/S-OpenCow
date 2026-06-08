@@ -16,6 +16,10 @@ import {
   type IMConnection,
   type MessagingSettings,
   type EventSubscriptionSettings,
+  type BackgroundModelSettings,
+  type BackgroundModelMode,
+  type BackgroundModelProtocol,
+  type BackgroundModelAuthStyle,
   type ProviderEngineSettings,
   type ProviderSettings,
   type CodexReasoningEffort,
@@ -58,6 +62,9 @@ const DEFAULT_SETTINGS: AppSettings = {
     endpoints: []
   },
   provider: {
+    backgroundModel: {
+      mode: 'inherit',
+    },
     byEngine: {
       claude: {
         activeMode: null,
@@ -420,6 +427,12 @@ function legacyBotEntryToTelegramConnection(entry: TelegramBotEntry): TelegramCo
 const VALID_PROVIDER_MODES = new Set(['subscription', 'api_key', 'openrouter', 'custom'])
 const VALID_CODEX_REASONING_EFFORTS: ReadonlySet<CodexReasoningEffort> =
   new Set(['minimal', 'low', 'medium', 'high', 'xhigh'])
+const VALID_BACKGROUND_MODEL_MODES: ReadonlySet<BackgroundModelMode> =
+  new Set(['inherit', 'inherit-model', 'custom'])
+const VALID_BACKGROUND_MODEL_PROTOCOLS: ReadonlySet<BackgroundModelProtocol> =
+  new Set(['openai', 'anthropic'])
+const VALID_BACKGROUND_MODEL_AUTH_STYLES: ReadonlySet<BackgroundModelAuthStyle> =
+  new Set(['x-api-key', 'bearer'])
 
 function normalizeProviderMode(raw: unknown): ProviderSettings['byEngine']['claude']['activeMode'] {
   if (typeof raw !== 'string') return null
@@ -431,6 +444,40 @@ function normalizeCodexReasoningEffort(raw: unknown): CodexReasoningEffort | und
   return VALID_CODEX_REASONING_EFFORTS.has(raw as CodexReasoningEffort)
     ? raw as CodexReasoningEffort
     : undefined
+}
+
+function normalizeBackgroundModelSettings(raw: unknown): BackgroundModelSettings {
+  const r = (raw ?? {}) as Record<string, unknown>
+  const mode = typeof r.mode === 'string' && VALID_BACKGROUND_MODEL_MODES.has(r.mode as BackgroundModelMode)
+    ? r.mode as BackgroundModelMode
+    : 'inherit'
+  if (mode === 'inherit') return { mode: 'inherit' }
+
+  const model = typeof r.model === 'string' && r.model.trim() ? r.model.trim() : undefined
+  if (mode === 'inherit-model') {
+    return {
+      mode: 'inherit-model',
+      ...(model ? { model } : {}),
+    }
+  }
+
+  const protocol = typeof r.protocol === 'string' && VALID_BACKGROUND_MODEL_PROTOCOLS.has(r.protocol as BackgroundModelProtocol)
+    ? r.protocol as BackgroundModelProtocol
+    : undefined
+  if (!protocol) return { mode: 'inherit' }
+
+  const baseUrl = typeof r.baseUrl === 'string' && r.baseUrl.trim() ? r.baseUrl.trim() : undefined
+  const authStyle = typeof r.authStyle === 'string' && VALID_BACKGROUND_MODEL_AUTH_STYLES.has(r.authStyle as BackgroundModelAuthStyle)
+    ? r.authStyle as BackgroundModelAuthStyle
+    : undefined
+
+  return {
+    mode: 'custom',
+    protocol,
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(model ? { model } : {}),
+    ...(protocol === 'anthropic' && authStyle ? { authStyle } : {}),
+  }
 }
 
 function pickLegacyDefaultModel(raw: Record<string, unknown> | undefined, legacyCommandModel?: string): string | undefined {
@@ -502,6 +549,7 @@ function migrateProviderSettings(
         { activeMode: null, defaultReasoningEffort: 'high' },
       ),
     },
+    backgroundModel: normalizeBackgroundModelSettings(source.backgroundModel),
   }
 }
 

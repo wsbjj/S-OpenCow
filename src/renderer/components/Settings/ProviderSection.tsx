@@ -7,7 +7,17 @@ import { cn } from '@/lib/utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { getAppAPI } from '@/windowAPI'
-import type { AIEngineKind, ApiProvider, CodexReasoningEffort, ProviderCredentialInfo, ProviderStatus } from '@shared/types'
+import type {
+  AIEngineKind,
+  ApiProvider,
+  AppSettings,
+  BackgroundModelAuthStyle,
+  BackgroundModelProtocol,
+  BackgroundModelSettings,
+  CodexReasoningEffort,
+  ProviderCredentialInfo,
+  ProviderStatus,
+} from '@shared/types'
 import {
   CODEX_REASONING_EFFORT_OPTIONS,
   ENGINE_TABS,
@@ -34,6 +44,11 @@ interface EngineTabPreviewProps {
   defaultModel?: string
 }
 
+interface BackgroundModelSectionProps {
+  settings: AppSettings
+  updateSettings: (settings: AppSettings) => Promise<void>
+}
+
 function StepHeader({ step, title, description }: StepHeaderProps): React.JSX.Element {
   const { t } = useTranslation('settings')
   return (
@@ -57,6 +72,32 @@ function resolveBadgeState(status: ProviderStatus | null): 'authenticated' | 'au
 
 function buildEngineModeSet(engineKind: AIEngineKind): Set<ApiProvider> {
   return new Set(PROVIDER_MODES_BY_ENGINE[engineKind].map((modeOption) => modeOption.mode))
+}
+
+function buildBackgroundModelSettings(
+  current: BackgroundModelSettings | undefined,
+  patch: Partial<BackgroundModelSettings>,
+): BackgroundModelSettings {
+  const next = { mode: 'inherit' as BackgroundModelSettings['mode'], ...current, ...patch }
+  if (next.mode === 'inherit') return { mode: 'inherit' }
+
+  const model = typeof next.model === 'string' && next.model.trim() ? next.model.trim() : undefined
+  if (next.mode === 'inherit-model') {
+    return {
+      mode: 'inherit-model',
+      ...(model ? { model } : {}),
+    }
+  }
+
+  const protocol = next.protocol ?? 'openai'
+  const baseUrl = typeof next.baseUrl === 'string' && next.baseUrl.trim() ? next.baseUrl.trim() : undefined
+  return {
+    mode: 'custom',
+    protocol,
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(model ? { model } : {}),
+    ...(protocol === 'anthropic' ? { authStyle: next.authStyle ?? 'x-api-key' } : {}),
+  }
 }
 
 function resolveInitialOpenEngine(
@@ -106,6 +147,264 @@ function EngineTabPreview({
         </span>
       </span>
     </>
+  )
+}
+
+function BackgroundModelSection({
+  settings,
+  updateSettings,
+}: BackgroundModelSectionProps): React.JSX.Element {
+  const { t } = useTranslation('settings')
+  const backgroundModel = useMemo<BackgroundModelSettings>(
+    () => settings.provider.backgroundModel ?? { mode: 'inherit' },
+    [settings.provider.backgroundModel],
+  )
+  const isCustom = backgroundModel.mode === 'custom'
+  const isInheritModel = backgroundModel.mode === 'inherit-model'
+  const protocol = isCustom ? (backgroundModel.protocol ?? 'openai') : 'openai'
+  const [apiKey, setApiKey] = useState('')
+  const [loadingCredential, setLoadingCredential] = useState(false)
+  const [savingCredential, setSavingCredential] = useState(false)
+  const [credentialError, setCredentialError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingCredential(true)
+    getAppAPI()['background-model:get-credential']()
+      .then((credential) => {
+        if (!cancelled) setApiKey(credential?.apiKey ?? '')
+      })
+      .catch((eventError: unknown) => {
+        if (!cancelled) setCredentialError(eventError instanceof Error ? eventError.message : String(eventError))
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCredential(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const updateBackgroundModel = useCallback(async (patch: Partial<BackgroundModelSettings>) => {
+    const nextBackgroundModel = buildBackgroundModelSettings(backgroundModel, patch)
+    await updateSettings({
+      ...settings,
+      provider: {
+        ...settings.provider,
+        backgroundModel: nextBackgroundModel,
+      },
+    })
+  }, [backgroundModel, settings, updateSettings])
+
+  const handleSaveCredential = useCallback(async () => {
+    const trimmed = apiKey.trim()
+    if (!trimmed) return
+    setSavingCredential(true)
+    setCredentialError(null)
+    try {
+      const credential = await getAppAPI()['background-model:set-credential']({ apiKey: trimmed })
+      setApiKey(credential?.apiKey ?? '')
+    } catch (eventError) {
+      setCredentialError(eventError instanceof Error ? eventError.message : String(eventError))
+    } finally {
+      setSavingCredential(false)
+    }
+  }, [apiKey])
+
+  const handleClearCredential = useCallback(async () => {
+    setSavingCredential(true)
+    setCredentialError(null)
+    try {
+      await getAppAPI()['background-model:clear-credential']()
+      setApiKey('')
+    } catch (eventError) {
+      setCredentialError(eventError instanceof Error ? eventError.message : String(eventError))
+    } finally {
+      setSavingCredential(false)
+    }
+  }, [])
+
+  return (
+    <section className="rounded-lg bg-[hsl(var(--foreground)/0.03)] p-4">
+      <div className="mb-4">
+        <h4 className="text-sm font-medium">{t('provider.backgroundModel.title')}</h4>
+        <p className="text-xs text-[hsl(var(--muted-foreground))]">{t('provider.backgroundModel.description')}</p>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-1">{t('provider.backgroundModel.mode')}</label>
+          <select
+            value={backgroundModel.mode}
+            onChange={(event) => {
+              const mode = event.target.value as BackgroundModelSettings['mode']
+              if (mode === 'custom') {
+                void updateBackgroundModel({ mode: 'custom', protocol })
+                return
+              }
+              if (mode === 'inherit-model') {
+                void updateBackgroundModel({ mode: 'inherit-model', model: backgroundModel.model })
+                return
+              }
+              void updateBackgroundModel({ mode: 'inherit' })
+            }}
+            className={cn(
+              'w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] pl-3 pr-8 py-1.5 text-sm outline-none',
+              'focus:ring-2 focus:ring-[hsl(var(--ring))]',
+            )}
+          >
+            <option value="inherit">{t('provider.backgroundModel.inherit')}</option>
+            <option value="inherit-model">{t('provider.backgroundModel.inheritModel')}</option>
+            <option value="custom">{t('provider.backgroundModel.custom')}</option>
+          </select>
+          <p className="mt-1.5 text-xs text-[hsl(var(--muted-foreground))]">
+            {t('provider.backgroundModel.modeHint')}
+          </p>
+        </div>
+
+        {isInheritModel && (
+          <div>
+            <label className="block text-sm font-medium mb-1">{t('provider.backgroundModel.model')}</label>
+            <input
+              type="text"
+              value={backgroundModel.model ?? ''}
+              onChange={(event) => void updateBackgroundModel({ mode: 'inherit-model', model: event.target.value || undefined })}
+              placeholder={t('provider.backgroundModel.inheritModelPlaceholder')}
+              className={cn(
+                'w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-1.5 text-sm outline-none font-mono',
+                'focus:ring-2 focus:ring-[hsl(var(--ring))]',
+              )}
+            />
+            <p className="mt-1.5 text-xs text-[hsl(var(--muted-foreground))]">
+              {t('provider.backgroundModel.inheritModelHint')}
+            </p>
+          </div>
+        )}
+
+        {isCustom && (
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium mb-1">{t('provider.backgroundModel.protocol')}</label>
+              <select
+                value={protocol}
+                onChange={(event) => {
+                  const nextProtocol = event.target.value as BackgroundModelProtocol
+                  void updateBackgroundModel({
+                    mode: 'custom',
+                    protocol: nextProtocol,
+                    authStyle: nextProtocol === 'anthropic' ? (backgroundModel.authStyle ?? 'x-api-key') : undefined,
+                  })
+                }}
+                className={cn(
+                  'w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] pl-3 pr-8 py-1.5 text-sm outline-none',
+                  'focus:ring-2 focus:ring-[hsl(var(--ring))]',
+                )}
+              >
+                <option value="openai">{t('provider.backgroundModel.protocolOpenAI')}</option>
+                <option value="anthropic">{t('provider.backgroundModel.protocolAnthropic')}</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">{t('provider.backgroundModel.model')}</label>
+              <input
+                type="text"
+                value={backgroundModel.model ?? ''}
+                onChange={(event) => void updateBackgroundModel({ mode: 'custom', model: event.target.value || undefined })}
+                placeholder={t('provider.backgroundModel.modelPlaceholder')}
+                className={cn(
+                  'w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-1.5 text-sm outline-none font-mono',
+                  'focus:ring-2 focus:ring-[hsl(var(--ring))]',
+                )}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">{t('provider.backgroundModel.baseUrl')}</label>
+              <input
+                type="url"
+                value={backgroundModel.baseUrl ?? ''}
+                onChange={(event) => void updateBackgroundModel({ mode: 'custom', baseUrl: event.target.value || undefined })}
+                placeholder={t('provider.backgroundModel.baseUrlPlaceholder')}
+                className={cn(
+                  'w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-1.5 text-sm outline-none font-mono',
+                  'focus:ring-2 focus:ring-[hsl(var(--ring))]',
+                )}
+              />
+              <p className="mt-1.5 text-xs text-[hsl(var(--muted-foreground))]">
+                {t('provider.backgroundModel.baseUrlHint')}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">{t('provider.backgroundModel.apiKey')}</label>
+              <input
+                type="password"
+                value={apiKey}
+                disabled={loadingCredential}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={t('provider.backgroundModel.apiKeyPlaceholder')}
+                className={cn(
+                  'w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-1.5 text-sm outline-none font-mono',
+                  'focus:ring-2 focus:ring-[hsl(var(--ring))]',
+                  loadingCredential && 'opacity-60 cursor-not-allowed',
+                )}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void handleSaveCredential()
+                }}
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleSaveCredential()}
+                  disabled={savingCredential || loadingCredential || !apiKey.trim()}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:bg-[hsl(var(--primary)/0.9)]',
+                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                  )}
+                >
+                  {savingCredential && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+                  {t('provider.backgroundModel.saveApiKey')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleClearCredential()}
+                  disabled={savingCredential || loadingCredential || !apiKey}
+                  className={cn(
+                    'rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs font-medium transition-colors',
+                    'hover:border-[hsl(var(--ring)/0.6)] disabled:opacity-50 disabled:cursor-not-allowed',
+                  )}
+                >
+                  {t('provider.backgroundModel.clearApiKey')}
+                </button>
+              </div>
+              {credentialError && <p className="mt-1.5 text-xs text-red-400">{credentialError}</p>}
+            </div>
+
+            {protocol === 'anthropic' && (
+              <div>
+                <label className="block text-sm font-medium mb-1">{t('provider.backgroundModel.authStyle')}</label>
+                <select
+                  value={backgroundModel.authStyle ?? 'x-api-key'}
+                  onChange={(event) => void updateBackgroundModel({
+                    mode: 'custom',
+                    authStyle: event.target.value as BackgroundModelAuthStyle,
+                  })}
+                  className={cn(
+                    'w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] pl-3 pr-8 py-1.5 text-sm outline-none',
+                    'focus:ring-2 focus:ring-[hsl(var(--ring))]',
+                  )}
+                >
+                  <option value="x-api-key">{t('provider.backgroundModel.authStyleXApiKey')}</option>
+                  <option value="bearer">{t('provider.backgroundModel.authStyleBearer')}</option>
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -495,6 +794,8 @@ export function ProviderSection(): React.JSX.Element {
           </TabsContent>
         </Tabs>
       </section>
+
+      <BackgroundModelSection settings={settings} updateSettings={updateSettings} />
 
       {error && (
         <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">

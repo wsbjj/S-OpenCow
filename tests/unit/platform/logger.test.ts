@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { initLogger, shutdownLogger, createLogger, writeLogEntry } from '../../../electron/platform/logger'
@@ -50,6 +50,31 @@ describe('Logger (main process)', () => {
     expect(content).toContain('[INFO ]')
     expect(content).toContain('[test]')
     expect(content).toContain('Hello world')
+  })
+
+  it('writes new log files with a UTF-8 BOM for legacy Windows readers', () => {
+    initTestLogger()
+    const log = createLogger('test')
+    log.info('中文日志：治愈关节问题')
+    shutdownLogger()
+
+    const bytes = readFileSync(join(logsDir, 'opencow.log'))
+    expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+    expect(readLog()).toContain('中文日志：治愈关节问题')
+  })
+
+  it('adds a UTF-8 BOM to existing legacy log files without dropping content', () => {
+    writeFileSync(join(logsDir, 'opencow.log'), 'legacy line\n', 'utf-8')
+
+    initTestLogger()
+    const log = createLogger('test')
+    log.info('中文日志：康复保证')
+    shutdownLogger()
+
+    const bytes = readFileSync(join(logsDir, 'opencow.log'))
+    expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+    expect(readLog()).toContain('legacy line')
+    expect(readLog()).toContain('中文日志：康复保证')
   })
 
   it('preserves log order', () => {
@@ -189,10 +214,12 @@ describe('Logger (main process)', () => {
 
   it('console fallback when file write fails', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const blockerPath = join(logsDir, 'not-a-directory')
+    writeFileSync(blockerPath, 'block directory creation')
 
-    // Use a non-writable directory
+    // Use a path whose parent is a file, which is invalid on every platform.
     initLogger({
-      logsDir: '/nonexistent/impossible/path',
+      logsDir: join(blockerPath, 'child'),
       level: 'debug',
       maxFileSize: 5 * 1024 * 1024,
       maxFiles: 3,
