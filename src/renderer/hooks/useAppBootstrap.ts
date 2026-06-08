@@ -44,7 +44,7 @@ import { resolveLocale } from '@shared/i18n'
 import { getAppAPI } from '@/windowAPI'
 import { thumbnailCache } from '@/lib/thumbnailCache'
 import { ensureBootstrapDataLoaded } from '@/lib/bootstrap/bootstrapCoordinator'
-import { applyLocale } from '@/i18n'
+import { applyLocale, i18n } from '@/i18n'
 import { fireAndForget } from '@/lib/asyncUtils'
 import { perfStart, perfEnabled, perfLog, perfWarn } from '@/lib/perfLogger'
 
@@ -652,8 +652,11 @@ export function useAppBootstrap(): void {
         // ── UI-only events (main → renderer) ──
 
         case 'ui:toast': {
-          const { message, duration } = event.payload
-          toast(message, { duration })
+          const { message, i18nKey, values, duration } = event.payload
+          const resolvedMessage = message ?? (i18nKey ? i18n.t(i18nKey, values) : '')
+          if (resolvedMessage) {
+            toast(resolvedMessage, { duration })
+          }
           break
         }
 

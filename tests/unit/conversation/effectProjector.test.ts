@@ -6,6 +6,28 @@ import type { ConversationDomainEffect } from '../../../electron/conversation/do
 import type { SessionContext } from '../../../electron/command/sessionContext'
 import { MCP_SERVER_QUALIFIED_NAME } from '../../../src/shared/appIdentity'
 
+const RECONNECTING_503_MESSAGE =
+  'Reconnecting... 1/5 (unexpected status 503 Service Unavailable: Service temporarily unavailable, url: https://agent.cam01.cn/v1/responses, request id: req-1)'
+
+function makeEngineDiagnosticEffect(params?: {
+  code?: string
+  severity?: 'info' | 'warning' | 'error'
+  message?: string
+  terminal?: boolean
+  source?: string
+}): ConversationDomainEffect {
+  return {
+    type: 'apply_engine_diagnostic',
+    payload: {
+      code: params?.code ?? 'codex.reconnecting',
+      severity: params?.severity ?? 'warning',
+      message: params?.message ?? RECONNECTING_503_MESSAGE,
+      terminal: params?.terminal ?? false,
+      source: params?.source ?? 'codex.transport',
+    },
+  }
+}
+
 function makeTurnResultEffect(params?: {
   outcome?: 'success' | 'max_turns' | 'execution_error' | 'budget_exceeded' | 'structured_output_error'
   result?: string
@@ -31,6 +53,8 @@ function makeContext(params: { engineKind: 'claude' | 'codex' }) {
     applyContextSnapshot: vi.fn(() => true),
     clearContextState: vi.fn(),
     addSystemEvent: vi.fn(() => 'sys-1'),
+    getSystemEventMessageId: vi.fn(() => undefined),
+    updateSystemEvent: vi.fn(),
     setActivity: vi.fn(),
     updateSystemEventById: vi.fn(),
     finalizeStreamingMessage: vi.fn(),
@@ -68,10 +92,116 @@ function makeContext(params: { engineKind: 'claude' | 'codex' }) {
   } as unknown as SessionContext & {
     session: typeof session
     dispatchSessionUpdated: ReturnType<typeof vi.fn>
+    dispatchMessageById: ReturnType<typeof vi.fn>
+    dispatch: ReturnType<typeof vi.fn>
   }
 }
 
 describe('applyConversationDomainEffects', () => {
+  it('projects codex reconnecting diagnostics to one visible system event and toast', () => {
+    const ctx = makeContext({ engineKind: 'codex' })
+
+    applyConversationDomainEffects({
+      effects: [makeEngineDiagnosticEffect()],
+      ctx,
+    })
+
+    expect(ctx.session.addSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'engine_diagnostic',
+        code: 'codex.reconnecting',
+        severity: 'warning',
+        source: 'codex.transport',
+        message: RECONNECTING_503_MESSAGE,
+        terminal: false,
+        retryCurrent: 1,
+        retryTotal: 5,
+        serviceUnavailable: true,
+        occurrenceCount: 1,
+        firstSeenAtMs: expect.any(Number),
+        lastSeenAtMs: expect.any(Number),
+      }),
+    )
+    expect(ctx.dispatchMessageById).toHaveBeenCalledWith('sys-1')
+    expect(ctx.dispatch).toHaveBeenCalledWith({
+      type: 'ui:toast',
+      payload: {
+        i18nKey: 'sessions:engineDiagnostics.reconnectingToast',
+        values: { retry: '1/5' },
+        duration: 6000,
+      },
+    })
+  })
+
+  it('updates the existing reconnecting diagnostic instead of creating duplicate toasts', () => {
+    const ctx = makeContext({ engineKind: 'codex' })
+    ctx.session.getSystemEventMessageId = vi
+      .fn()
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce('sys-1')
+
+    applyConversationDomainEffects({
+      effects: [
+        makeEngineDiagnosticEffect(),
+        makeEngineDiagnosticEffect({
+          message:
+            'Reconnecting... 2/5 (unexpected status 503 Service Unavailable: Service temporarily unavailable, url: https://agent.cam01.cn/v1/responses, request id: req-2)',
+        }),
+      ],
+      ctx,
+    })
+
+    expect(ctx.session.addSystemEvent).toHaveBeenCalledTimes(1)
+    expect(ctx.session.updateSystemEvent).toHaveBeenCalledWith(
+      'engine-diagnostic:codex.reconnecting:codex.transport',
+      expect.any(Function),
+    )
+    expect(ctx.dispatch).toHaveBeenCalledTimes(1)
+    expect(ctx.dispatchMessageById).toHaveBeenCalledWith('sys-1')
+
+    const updater = ctx.session.updateSystemEvent.mock.calls[0]?.[1]
+    const event = {
+      type: 'engine_diagnostic' as const,
+      code: 'codex.reconnecting',
+      severity: 'warning' as const,
+      source: 'codex.transport',
+      message: RECONNECTING_503_MESSAGE,
+      terminal: false,
+      retryCurrent: 1,
+      retryTotal: 5,
+      serviceUnavailable: true,
+      occurrenceCount: 1,
+      firstSeenAtMs: 100,
+      lastSeenAtMs: 100,
+    }
+    updater?.(event)
+
+    expect(event.message).toContain('Reconnecting... 2/5')
+    expect(event.retryCurrent).toBe(2)
+    expect(event.retryTotal).toBe(5)
+    expect(event.occurrenceCount).toBe(2)
+    expect(event.lastSeenAtMs).toEqual(expect.any(Number))
+  })
+
+  it('keeps non-reconnecting diagnostics log-only', () => {
+    const ctx = makeContext({ engineKind: 'codex' })
+
+    applyConversationDomainEffects({
+      effects: [
+        makeEngineDiagnosticEffect({
+          code: 'codex.event_stream_lag',
+          message: 'in-process app-server event stream lagged; dropped 35 events',
+        }),
+      ],
+      ctx,
+    })
+
+    expect(ctx.session.addSystemEvent).not.toHaveBeenCalled()
+    expect(ctx.session.updateSystemEvent).not.toHaveBeenCalled()
+    expect(ctx.dispatchMessageById).not.toHaveBeenCalled()
+    expect(ctx.dispatch).not.toHaveBeenCalled()
+  })
+
   it('apply_turn_usage only does token accounting — no context tracking', () => {
     const ctx = makeContext({ engineKind: 'codex' })
     const effects: ConversationDomainEffect[] = [

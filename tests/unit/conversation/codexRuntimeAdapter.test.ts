@@ -114,7 +114,7 @@ describe('CodexRuntimeEventAdapter', () => {
     const adapter = new CodexRuntimeEventAdapter()
     const result = adapter.adapt({
       type: 'error',
-      message: 'Reconnecting... 1/5 (unexpected status 503 Service Unavailable: Service temporarily unavailable, url: http://example.com/responses, request id: abc-123)',
+      message: 'Reconnecting... 1/5 (unexpected status 503 Service Unavailable: Service temporarily unavailable, url: https://agent.cam01.cn/v1/responses, request id: abc-123)',
     } as never)
 
     expect(result.events).toHaveLength(1)

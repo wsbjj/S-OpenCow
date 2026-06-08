@@ -809,6 +809,7 @@ export class ManagedSession {
       case 'task_started': return `task:${event.taskId}`
       case 'task_notification': return `task-notif:${event.taskId}`
       case 'hook': return `hook:${event.hookId}`
+      case 'engine_diagnostic': return `engine-diagnostic:${event.code}:${event.source ?? 'unknown'}`
       default: return null
     }
   }

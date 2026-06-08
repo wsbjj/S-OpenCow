@@ -1865,6 +1865,15 @@ export type MarketAnalysisPhase =
 
 // === DataBus Events ===
 
+export interface UiToastPayload {
+  /** Literal message kept for existing main/renderer toast callers. */
+  message?: string
+  /** Optional i18next key resolved by the renderer, e.g. "sessions:key.path". */
+  i18nKey?: string
+  values?: Record<string, string | number | boolean>
+  duration?: number
+}
+
 export type DataBusEvent =
   | {
       type: 'sessions:updated'
@@ -2064,7 +2073,7 @@ export type DataBusEvent =
   // Update checker
   | { type: 'update:check-result'; payload: UpdateCheckResult }
   // UI-only events (main → renderer, not persisted in DataBus)
-  | { type: 'ui:toast'; payload: { message: string; duration?: number } }
+  | { type: 'ui:toast'; payload: UiToastPayload }
   | { type: 'menu:about' }
   // Memory events
   | { type: 'memory:extracted'; payload: { items: MemoryItem[]; source: MemorySource } }
@@ -2928,12 +2937,30 @@ export interface EngineSwitchEvent {
   toEngine: AIEngineKind
 }
 
+export type EngineDiagnosticSeverity = 'info' | 'warning' | 'error'
+
+export interface EngineDiagnosticEvent {
+  type: 'engine_diagnostic'
+  code: string
+  severity: EngineDiagnosticSeverity
+  source?: string
+  message: string
+  terminal: boolean
+  firstSeenAtMs: number
+  lastSeenAtMs: number
+  occurrenceCount: number
+  retryCurrent?: number
+  retryTotal?: number
+  serviceUnavailable?: boolean
+}
+
 export type SystemEvent =
   | TaskStartedEvent
   | TaskNotificationEvent
   | HookStatusEvent
   | CompactBoundaryEvent
   | EngineSwitchEvent
+  | EngineDiagnosticEvent
 
 // === Command Phase: Managed Sessions ===
 

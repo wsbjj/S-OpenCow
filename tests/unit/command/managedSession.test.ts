@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { ManagedSession } from '../../../electron/command/managedSession'
-import type { ManagedSessionConfig, ContentBlock, TaskStartedEvent, HookStatusEvent } from '../../../src/shared/types'
+import type { ManagedSessionConfig, ContentBlock, TaskStartedEvent, HookStatusEvent, EngineDiagnosticEvent } from '../../../src/shared/types'
 
 function textBlock(text: string): ContentBlock {
   return { type: 'text', text }
@@ -357,6 +357,43 @@ describe('ManagedSession', () => {
       expect(msg.event.outcome).toBe('success')
       expect(msg.event.exitCode).toBe(0)
       expect(msg.event.output).toBe('OK')
+    }
+  })
+
+  it('indexes engine diagnostic system events by code and source fallback', () => {
+    const session = new ManagedSession(baseConfig)
+    const event: EngineDiagnosticEvent = {
+      type: 'engine_diagnostic',
+      code: 'codex.reconnecting',
+      severity: 'warning',
+      message: 'Reconnecting... 1/5 (unexpected status 503 Service Unavailable)',
+      terminal: false,
+      firstSeenAtMs: 100,
+      lastSeenAtMs: 100,
+      occurrenceCount: 1,
+      retryCurrent: 1,
+      retryTotal: 5,
+      serviceUnavailable: true,
+    }
+
+    const msgId = session.addSystemEvent(event)
+    const refId = 'engine-diagnostic:codex.reconnecting:unknown'
+
+    expect(session.getSystemEventMessageId(refId)).toBe(msgId)
+
+    session.updateSystemEvent(refId, (evt) => {
+      if (evt.type === 'engine_diagnostic') {
+        evt.message = 'Reconnecting... 2/5 (unexpected status 503 Service Unavailable)'
+        evt.retryCurrent = 2
+        evt.occurrenceCount = 2
+      }
+    })
+
+    const msg = session.getInfo().messages[0]
+    if (msg.role === 'system' && msg.event.type === 'engine_diagnostic') {
+      expect(msg.event.message).toContain('Reconnecting... 2/5')
+      expect(msg.event.retryCurrent).toBe(2)
+      expect(msg.event.occurrenceCount).toBe(2)
     }
   })
 

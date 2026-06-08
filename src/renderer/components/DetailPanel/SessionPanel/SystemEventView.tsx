@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { memo } from 'react'
-import { ListChecks, CheckCircle2, XCircle, Square, Zap, Scissors, Loader2, ArrowRightLeft } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { ListChecks, CheckCircle2, XCircle, Square, Zap, Scissors, Loader2, ArrowRightLeft, AlertTriangle } from 'lucide-react'
 import type { SystemEvent } from '@shared/types'
 
 interface SystemEventViewProps {
@@ -9,6 +10,8 @@ interface SystemEventViewProps {
 }
 
 export const SystemEventView = memo(function SystemEventView({ event }: SystemEventViewProps): React.JSX.Element {
+  const { t } = useTranslation('sessions')
+
   switch (event.type) {
     case 'task_started':
       return (
@@ -103,6 +106,35 @@ export const SystemEventView = memo(function SystemEventView({ event }: SystemEv
           <ArrowRightLeft className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
           <span>Engine switched {'\u00b7'} {event.fromEngine} → {event.toEngine}</span>
           <div className="flex-1 h-px bg-[hsl(var(--border))]" />
+        </li>
+      )
+    }
+
+    case 'engine_diagnostic': {
+      const retryLabel = event.retryCurrent != null && event.retryTotal != null
+        ? `${event.retryCurrent}/${event.retryTotal}`
+        : ''
+      const label = event.code === 'codex.reconnecting'
+        ? retryLabel
+          ? t('engineDiagnostics.reconnectingLine', { retry: retryLabel })
+          : t('engineDiagnostics.reconnectingLineNoRetry')
+        : event.message
+      const color = event.severity === 'error'
+        ? 'text-red-500'
+        : event.severity === 'warning'
+          ? 'text-amber-500'
+          : 'text-blue-500'
+      const accessibleLabel = event.message === label ? label : `${label} ${event.message}`
+
+      return (
+        <li
+          className="flex items-start gap-2 py-0.5 text-xs font-mono text-[hsl(var(--muted-foreground))]"
+          aria-label={accessibleLabel}
+          aria-live="polite"
+          title={event.message}
+        >
+          <AlertTriangle className={`w-3.5 h-3.5 ${color} shrink-0 mt-0.5`} aria-hidden="true" />
+          <span>{label}</span>
         </li>
       )
     }

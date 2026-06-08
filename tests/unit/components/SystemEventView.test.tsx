@@ -123,4 +123,29 @@ describe('SystemEventView', () => {
       expect(screen.getByText(/500 tokens/)).toBeInTheDocument()
     })
   })
+
+  describe('engine_diagnostic', () => {
+    it('renders codex reconnecting service-unavailable warning with retry progress', () => {
+      renderEvent({
+        type: 'engine_diagnostic',
+        code: 'codex.reconnecting',
+        severity: 'warning',
+        source: 'codex.transport',
+        message:
+          'Reconnecting... 2/5 (unexpected status 503 Service Unavailable: Service temporarily unavailable, url: https://agent.cam01.cn/v1/responses, request id: req-2)',
+        terminal: false,
+        firstSeenAtMs: 100,
+        lastSeenAtMs: 200,
+        occurrenceCount: 2,
+        retryCurrent: 2,
+        retryTotal: 5,
+        serviceUnavailable: true,
+      })
+
+      expect(screen.getByText(/Codex service is temporarily unavailable/i)).toBeInTheDocument()
+      expect(screen.getByText(/2\/5/)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Codex service is temporarily unavailable.*2\/5/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Reconnecting\.\.\. 2\/5.*503 Service Unavailable/i)).toBeInTheDocument()
+    })
+  })
 })

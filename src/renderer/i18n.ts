@@ -14,7 +14,7 @@ const log = createLogger('i18n')
 
 // The runtime default export is the i18n singleton instance.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const i18n = (i18nextModule as any).default ?? i18nextModule
+export const i18n = (i18nextModule as any).default ?? i18nextModule
 
 import zhCNCommon from './locales/zh-CN/common.json'
 import zhCNNavigation from './locales/zh-CN/navigation.json'

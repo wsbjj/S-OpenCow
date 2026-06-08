@@ -527,7 +527,7 @@ describe('CodexQueryLifecycle', () => {
         yield { type: 'thread.started', thread_id: 'thread-err' }
         yield { type: 'turn.started' }
         yield { type: 'error', message: 'Reconnecting... 1/5 (unexpected status 503 Service Unavailable)' }
-        yield { type: 'error', message: 'Reconnecting... 5/5 (unexpected status 503 Service Unavailable: url: http://example.com)' }
+        yield { type: 'error', message: 'Reconnecting... 5/5 (unexpected status 503 Service Unavailable: Service temporarily unavailable, url: https://agent.cam01.cn/v1/responses, request id: req-final)' }
         // Binary exits with code 1 after retries exhausted
         throw new Error('Codex Exec exited with code 1: Reading prompt from stdin...')
       })()
@@ -547,6 +547,8 @@ describe('CodexQueryLifecycle', () => {
       expect(result.event.payload.outcome).toBe('execution_error')
       // Should surface the last error event message, NOT the generic stderr
       expect(result.event.payload.errors?.[0]).toContain('Reconnecting... 5/5')
+      expect(result.event.payload.errors?.[0]).toContain('503 Service Unavailable')
+      expect(result.event.payload.errors?.[0]).toContain('https://agent.cam01.cn/v1/responses')
       expect(result.event.payload.errors?.[0]).not.toContain('Reading prompt from stdin')
     }
 

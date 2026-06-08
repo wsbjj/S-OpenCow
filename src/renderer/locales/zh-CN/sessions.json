@@ -245,6 +245,11 @@
     "fileDropHint": "松手附加文件",
     "fileDropHintSub": "支持图片、PDF 和文本文件"
   },
+  "engineDiagnostics": {
+    "reconnectingLine": "Codex 服务暂时不可用，正在重连（{{retry}}）。",
+    "reconnectingLineNoRetry": "Codex 服务暂时不可用，正在重连。",
+    "reconnectingToast": "Codex 服务暂时不可用，正在重连（{{retry}}）。"
+  },
   "taskWidget": {
     "state": {
       "launching": "启动中…",

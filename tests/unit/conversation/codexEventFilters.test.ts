@@ -34,7 +34,7 @@ describe('codexEventFilters', () => {
   })
 
   it('detects reconnecting retry messages as non-fatal', () => {
-    const message = 'Reconnecting... 1/5 (unexpected status 503 Service Unavailable: Service temporarily unavailable, url: http://example.com/responses, request id: abc-123)'
+    const message = 'Reconnecting... 1/5 (unexpected status 503 Service Unavailable: Service temporarily unavailable, url: https://agent.cam01.cn/v1/responses, request id: abc-123)'
     expect(isIgnorableCodexNonFatalError(message)).toBe(true)
     const diagnostic = classifyCodexErrorMessage(message)
     expect(diagnostic).toMatchObject({

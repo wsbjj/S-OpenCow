@@ -245,6 +245,11 @@
     "fileDropHint": "Drop files to attach",
     "fileDropHintSub": "Images, PDFs, and text files will be attached to your message"
   },
+  "engineDiagnostics": {
+    "reconnectingLine": "Codex service is temporarily unavailable. Reconnecting ({{retry}}).",
+    "reconnectingLineNoRetry": "Codex service is temporarily unavailable. Reconnecting.",
+    "reconnectingToast": "Codex service is temporarily unavailable. Reconnecting ({{retry}})."
+  },
   "taskWidget": {
     "state": {
       "launching": "Launching…",

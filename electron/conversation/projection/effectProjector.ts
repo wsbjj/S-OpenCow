@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import type { SessionStopReason, ContentBlock } from '../../../src/shared/types'
+import type { SessionStopReason, ContentBlock, EngineDiagnosticEvent } from '../../../src/shared/types'
 import { createLogger } from '../../platform/logger'
 import type { SessionContext } from '../../command/sessionContext'
 import type { ConversationDomainEffect } from '../domain/effects'
@@ -72,6 +72,88 @@ function logEngineDiagnostic(params: {
     return
   }
   log.info(line)
+}
+
+const CODEX_RECONNECTING_DIAGNOSTIC_CODE = 'codex.reconnecting'
+const ENGINE_DIAGNOSTIC_TOAST_DURATION_MS = 6_000
+const RECONNECTING_RETRY_RE = /^Reconnecting\.\.\.\s+(\d+)\/(\d+)/i
+const SERVICE_UNAVAILABLE_RE = /\b503\b|Service Unavailable/i
+
+function engineDiagnosticRefId(event: Pick<EngineDiagnosticEvent, 'code' | 'source'>): string {
+  return `engine-diagnostic:${event.code}:${event.source ?? 'unknown'}`
+}
+
+function parseRetryProgress(message: string): Pick<EngineDiagnosticEvent, 'retryCurrent' | 'retryTotal'> {
+  const match = RECONNECTING_RETRY_RE.exec(message)
+  if (!match) return {}
+  return {
+    retryCurrent: Number(match[1]),
+    retryTotal: Number(match[2]),
+  }
+}
+
+function formatRetryProgress(event: Pick<EngineDiagnosticEvent, 'retryCurrent' | 'retryTotal'>): string {
+  return event.retryCurrent != null && event.retryTotal != null
+    ? `${event.retryCurrent}/${event.retryTotal}`
+    : ''
+}
+
+function buildEngineDiagnosticSystemEvent(params: {
+  payload: Extract<ConversationDomainEffect, { type: 'apply_engine_diagnostic' }>['payload']
+  now: number
+  existing?: EngineDiagnosticEvent
+}): EngineDiagnosticEvent {
+  const retry = parseRetryProgress(params.payload.message)
+  return {
+    type: 'engine_diagnostic',
+    code: params.payload.code,
+    severity: params.payload.severity,
+    source: params.payload.source,
+    message: params.payload.message,
+    terminal: params.payload.terminal,
+    firstSeenAtMs: params.existing?.firstSeenAtMs ?? params.now,
+    lastSeenAtMs: params.now,
+    occurrenceCount: (params.existing?.occurrenceCount ?? 0) + 1,
+    serviceUnavailable: SERVICE_UNAVAILABLE_RE.test(params.payload.message),
+    ...retry,
+  }
+}
+
+function applyUserVisibleEngineDiagnostic(params: {
+  effect: Extract<ConversationDomainEffect, { type: 'apply_engine_diagnostic' }>
+  ctx: SessionContext
+}): void {
+  const { effect, ctx } = params
+  if (effect.payload.code !== CODEX_RECONNECTING_DIAGNOSTIC_CODE) return
+
+  const now = Date.now()
+  const refId = engineDiagnosticRefId(effect.payload)
+  const existingMessageId = ctx.session.getSystemEventMessageId(refId)
+
+  if (existingMessageId) {
+    ctx.session.updateSystemEvent(refId, (event) => {
+      if (event.type !== 'engine_diagnostic') return
+      Object.assign(event, buildEngineDiagnosticSystemEvent({
+        payload: effect.payload,
+        now,
+        existing: event,
+      }))
+    })
+    ctx.dispatchMessageById(existingMessageId)
+    return
+  }
+
+  const event = buildEngineDiagnosticSystemEvent({ payload: effect.payload, now })
+  const messageId = ctx.session.addSystemEvent(event)
+  ctx.dispatchMessageById(messageId)
+  ctx.dispatch({
+    type: 'ui:toast',
+    payload: {
+      i18nKey: 'sessions:engineDiagnostics.reconnectingToast',
+      values: { retry: formatRetryProgress(event) },
+      duration: ENGINE_DIAGNOSTIC_TOAST_DURATION_MS,
+    },
+  })
 }
 
 function applyTurnResultEffect(effect: Extract<ConversationDomainEffect, { type: 'apply_turn_result' }>, ctx: SessionContext): void {
@@ -335,6 +417,7 @@ export function applyConversationDomainEffects(params: {
           terminal: effect.payload.terminal,
           source: effect.payload.source,
         })
+        applyUserVisibleEngineDiagnostic({ effect, ctx })
         break
       }
 
