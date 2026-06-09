@@ -101,9 +101,25 @@ export class MemoryExtractor {
       })
       return candidates
     } catch (err) {
+      if (this.isEmptyTextLLMError(err)) {
+        log.debug('Extraction skipped because LLM returned empty text', {
+          message: err instanceof Error ? err.message : String(err),
+        })
+        return []
+      }
       log.error('Extraction failed', err)
       return []
     }
+  }
+
+  private isEmptyTextLLMError(err: unknown): boolean {
+    if (err instanceof Error && err.name === 'HeadlessEmptyTextError') return true
+    const message = err instanceof Error
+      ? err.message.toLowerCase()
+      : typeof err === 'string'
+        ? err.toLowerCase()
+        : ''
+    return message.includes('headlessllmclient') && message.includes('empty') && message.includes('text')
   }
 
   /**
@@ -112,6 +128,11 @@ export class MemoryExtractor {
   private parseResponse(text: string, defaultScope: MemoryScope): CandidateMemory[] {
     // Strip markdown fences if present
     let cleaned = text.trim()
+    if (!cleaned) {
+      log.warn('Empty extraction response from LLM', { defaultScope })
+      return []
+    }
+
     if (cleaned.startsWith('```')) {
       cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
     }
