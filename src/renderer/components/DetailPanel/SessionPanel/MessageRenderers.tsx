@@ -11,10 +11,11 @@
 import { memo } from 'react'
 import { LinkifiedText } from '@/components/ui/LinkifiedText'
 import { ContentBlockRenderer } from './ContentBlockRenderer'
+import { MessageCopyButton } from './MessageCopyButton'
 import { ContextFileChips } from '@/components/ui/ContextFileChips'
 import { parseContextFiles } from '@/lib/contextFilesParsing'
 import { getSlashDisplayLabel } from '@shared/slashDisplay'
-import { extractUserText } from './messageDisplayUtils'
+import { extractUserText, getUserMessageDisplayInfo } from './messageDisplayUtils'
 import type { ContentBlock, SlashCommandBlock } from '@shared/types'
 
 // ---------------------------------------------------------------------------
@@ -89,11 +90,12 @@ function renderUserContentBlocks(
 export const UserMessage = memo(function UserMessage({ id, content }: { id: string; content: ContentBlock[] }) {
   const hasRichContent = content.some((b) => b.type === 'slash_command' || b.type === 'image' || b.type === 'document')
   const plainText = hasRichContent ? '' : extractUserText(content)
+  const copyText = getUserMessageDisplayInfo(content).displayText ?? ''
 
   return (
     <div data-msg-id={id} data-msg-role="user" className="relative flex gap-2 py-1 -ml-3 pl-3 before:absolute before:left-0 before:top-[6px] before:bottom-[6px] before:w-0.5 before:bg-[hsl(var(--primary)/0.2)]">
       <span className="text-[hsl(var(--muted-foreground))] font-mono text-sm shrink-0 select-none leading-5" aria-hidden="true">{'>'}</span>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         {hasRichContent ? (
           <div className="text-sm font-mono text-[hsl(var(--foreground))] break-words min-w-0 leading-5">
             {renderUserContentBlocks(content)}
@@ -108,6 +110,7 @@ export const UserMessage = memo(function UserMessage({ id, content }: { id: stri
           </>
         )}
       </div>
+      <MessageCopyButton ariaLabel="Copy user message" text={copyText} />
     </div>
   )
 })
@@ -121,9 +124,11 @@ const CHAT_LINK_CLASS = '[&_a]:text-[hsl(var(--primary))] [&_a]:underline [&_a]:
 export const ChatBubbleUserMessage = memo(function ChatBubbleUserMessage({ id, content }: { id: string; content: ContentBlock[] }) {
   const hasRichContent = content.some((b) => b.type === 'slash_command' || b.type === 'image' || b.type === 'document')
   const plainText = hasRichContent ? '' : extractUserText(content)
+  const copyText = getUserMessageDisplayInfo(content).displayText ?? ''
 
   return (
-    <div data-msg-id={id} data-msg-role="user" className="flex justify-end py-1.5">
+    <div data-msg-id={id} data-msg-role="user" className="flex justify-end gap-1.5 py-1.5">
+      <MessageCopyButton ariaLabel="Copy user message" text={copyText} />
       <div className="max-w-[80%] px-4 py-2.5 rounded-2xl bg-[hsl(var(--foreground)/0.06)] dark:bg-white/10 text-[hsl(var(--foreground))]">
         {hasRichContent ? (
           <div className="text-sm break-words min-w-0 leading-relaxed">

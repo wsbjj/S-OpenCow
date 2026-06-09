@@ -12,6 +12,7 @@
 
 import { useRef, useMemo, memo } from 'react'
 import { ContentBlockRenderer } from './ContentBlockRenderer'
+import { MessageCopyButton } from './MessageCopyButton'
 import { ToolBatchCollapsible } from './ToolBatchCollapsible'
 import { useCommandStore, selectStreamingMessage } from '@/stores/commandStore'
 import type { ManagedSessionMessage, ContentBlock } from '@shared/types'
@@ -68,6 +69,13 @@ function extractLastTextBlockIndex(blocks: ContentBlock[]): number {
     if (blocks[i].type === 'text') return i
   }
   return -1
+}
+
+function extractAssistantText(blocks: readonly ContentBlock[]): string {
+  return blocks
+    .filter((block) => block.type === 'text')
+    .map((block) => (block.type === 'text' ? block.text : ''))
+    .join('\n')
 }
 
 // ---------------------------------------------------------------------------
@@ -175,21 +183,25 @@ export const AssistantMessage = memo(function AssistantMessage({
   const lastTextBlockIndex = extractLastTextBlockIndex(stableContent)
   const hasToolUseInMessage = toolCallCount > 0
   const textStreaming = isStreaming && !hasToolUseInMessage
+  const copyText = extractAssistantText(stableContent)
 
   if (!shouldCollapseInMessageTools) {
     return (
-      <div data-msg-id={id} data-msg-role="assistant" className="py-0.5 break-words min-w-0">
-        {stableContent.map((block, index) => (
-          <ContentBlockRenderer
-            key={`${block.type}-${index}`}
-            block={block}
-            sessionId={sessionId}
-            isLastTextBlock={index === lastTextBlockIndex}
-            isStreaming={textStreaming}
-            isMessageStreaming={isStreaming}
-            activeToolUseId={activeToolUseId}
-          />
-        ))}
+      <div data-msg-id={id} data-msg-role="assistant" className="group/message flex gap-1.5 py-0.5 break-words min-w-0">
+        <div className="min-w-0 flex-1">
+          {stableContent.map((block, index) => (
+            <ContentBlockRenderer
+              key={`${block.type}-${index}`}
+              block={block}
+              sessionId={sessionId}
+              isLastTextBlock={index === lastTextBlockIndex}
+              isStreaming={textStreaming}
+              isMessageStreaming={isStreaming}
+              activeToolUseId={activeToolUseId}
+            />
+          ))}
+        </div>
+        <MessageCopyButton ariaLabel="Copy assistant message" text={copyText} />
       </div>
     )
   }
@@ -197,61 +209,64 @@ export const AssistantMessage = memo(function AssistantMessage({
   const segments = splitToolAndNonToolSegments(stableContent)
 
   return (
-    <div data-msg-id={id} data-msg-role="assistant" className="py-0.5 break-words min-w-0">
-      {segments.map((segment, segmentIndex) => {
-        if (segment.kind === 'tool') {
-          const segmentContent = segment.blocks.map(({ block }) => block)
-          const segmentToolCallCount = countToolUseBlocks(segmentContent)
-          if (segmentToolCallCount < IN_MESSAGE_TOOL_COLLAPSE_THRESHOLD) {
+    <div data-msg-id={id} data-msg-role="assistant" className="group/message flex gap-1.5 py-0.5 break-words min-w-0">
+      <div className="min-w-0 flex-1">
+        {segments.map((segment, segmentIndex) => {
+          if (segment.kind === 'tool') {
+            const segmentContent = segment.blocks.map(({ block }) => block)
+            const segmentToolCallCount = countToolUseBlocks(segmentContent)
+            if (segmentToolCallCount < IN_MESSAGE_TOOL_COLLAPSE_THRESHOLD) {
+              return (
+                <div key={`${id}-tool-segment-raw-${segmentIndex}-${segment.blocks[0]?.index ?? 0}`}>
+                  {segment.blocks.map(({ block, index }) => (
+                    <ContentBlockRenderer
+                      key={`${block.type}-${index}`}
+                      block={block}
+                      sessionId={sessionId}
+                      isLastTextBlock={index === lastTextBlockIndex}
+                      isStreaming={textStreaming}
+                      isMessageStreaming={isStreaming}
+                      activeToolUseId={activeToolUseId}
+                    />
+                  ))}
+                </div>
+              )
+            }
+
+            const segmentMessage: ManagedSessionMessage = {
+              id: `${id}-tool-segment-${segmentIndex}`,
+              role: 'assistant',
+              content: segmentContent,
+              timestamp: msg.timestamp,
+              isStreaming,
+              activeToolUseId,
+            }
             return (
-              <div key={`${id}-tool-segment-raw-${segmentIndex}-${segment.blocks[0]?.index ?? 0}`}>
-                {segment.blocks.map(({ block, index }) => (
-                  <ContentBlockRenderer
-                    key={`${block.type}-${index}`}
-                    block={block}
-                    sessionId={sessionId}
-                    isLastTextBlock={index === lastTextBlockIndex}
-                    isStreaming={textStreaming}
-                    isMessageStreaming={isStreaming}
-                    activeToolUseId={activeToolUseId}
-                  />
-                ))}
-              </div>
+              <ToolBatchCollapsible
+                key={`${id}-tool-segment-${segmentIndex}-${segment.blocks[0]?.index ?? 0}`}
+                messages={[segmentMessage]}
+                sessionId={sessionId}
+              />
             )
           }
-
-          const segmentMessage: ManagedSessionMessage = {
-            id: `${id}-tool-segment-${segmentIndex}`,
-            role: 'assistant',
-            content: segmentContent,
-            timestamp: msg.timestamp,
-            isStreaming,
-            activeToolUseId,
-          }
           return (
-            <ToolBatchCollapsible
-              key={`${id}-tool-segment-${segmentIndex}-${segment.blocks[0]?.index ?? 0}`}
-              messages={[segmentMessage]}
-              sessionId={sessionId}
-            />
+            <div key={`${id}-other-segment-${segmentIndex}-${segment.blocks[0]?.index ?? 0}`}>
+              {segment.blocks.map(({ block, index }) => (
+                <ContentBlockRenderer
+                  key={`${block.type}-${index}`}
+                  block={block}
+                  sessionId={sessionId}
+                  isLastTextBlock={index === lastTextBlockIndex}
+                  isStreaming={textStreaming}
+                  isMessageStreaming={isStreaming}
+                  activeToolUseId={activeToolUseId}
+                />
+              ))}
+            </div>
           )
-        }
-        return (
-          <div key={`${id}-other-segment-${segmentIndex}-${segment.blocks[0]?.index ?? 0}`}>
-            {segment.blocks.map(({ block, index }) => (
-              <ContentBlockRenderer
-                key={`${block.type}-${index}`}
-                block={block}
-                sessionId={sessionId}
-                isLastTextBlock={index === lastTextBlockIndex}
-                isStreaming={textStreaming}
-                isMessageStreaming={isStreaming}
-                activeToolUseId={activeToolUseId}
-              />
-            ))}
-          </div>
-        )
-      })}
+        })}
+      </div>
+      <MessageCopyButton ariaLabel="Copy assistant message" text={copyText} />
     </div>
   )
 })

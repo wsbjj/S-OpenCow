@@ -2,8 +2,9 @@
 
 // @vitest-environment jsdom
 import React from 'react'
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { SessionMessageList } from '../../../src/renderer/components/DetailPanel/SessionPanel/SessionMessageList'
 import type { ManagedSessionMessage, ManagedSessionState, ContentBlock, SystemEvent } from '../../../src/shared/types'
@@ -21,6 +22,14 @@ vi.mock('react-virtuoso', () => ({
       ? <ListComp role="list" aria-label="Session messages">{list}</ListComp>
       : <div role="list" aria-label="Session messages">{list}</div>
   },
+}))
+
+const writeClipboardText = vi.fn()
+
+vi.mock('../../../src/renderer/windowAPI', () => ({
+  getAppAPI: () => ({
+    'clipboard:write-text': writeClipboardText,
+  }),
 }))
 
 function textBlocks(text: string): ContentBlock[] {
@@ -50,6 +59,10 @@ function makeSystemMsg(event: SystemEvent, id = 'sys-1'): ManagedSessionMessage 
 }
 
 describe('SessionMessageList', () => {
+  beforeEach(() => {
+    writeClipboardText.mockReset()
+  })
+
   it('renders user messages with ">" prefix', () => {
     render(
       <SessionMessageList
@@ -70,6 +83,73 @@ describe('SessionMessageList', () => {
     )
     expect(screen.getByText('fix')).toBeInTheDocument()
     expect(screen.getByText('fix').tagName).toBe('STRONG')
+  })
+
+  it('copies user message text from the copy button', async () => {
+    const user = userEvent.setup()
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[makeUserMsg(textBlocks('Fix the bug'), 'user-copy')]}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /Copy user message/i }))
+
+    expect(writeClipboardText).toHaveBeenCalledWith('Fix the bug')
+  })
+
+  it('copies assistant response text from the copy button', async () => {
+    const user = userEvent.setup()
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[makeAssistantMsg(textBlocks('I will **fix** this.'), { id: 'assistant-copy' })]}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /Copy assistant message/i }))
+
+    expect(writeClipboardText).toHaveBeenCalledWith('I will **fix** this.')
+  })
+
+  it('copies visible slash command text from user messages', async () => {
+    const user = userEvent.setup()
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[
+          makeUserMsg([
+            {
+              type: 'slash_command',
+              name: 'evose:x_analyst_abcd12',
+              category: 'skill',
+              label: 'X Analyst',
+              expandedText: 'Run app',
+            },
+            { type: 'text', text: ' summarize this topic' },
+          ], 'slash-copy'),
+        ]}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /Copy user message/i }))
+
+    expect(writeClipboardText).toHaveBeenCalledWith('/X Analyst summarize this topic')
+  })
+
+  it('preserves assistant message text whitespace when copying', async () => {
+    const user = userEvent.setup()
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[makeAssistantMsg(textBlocks('\n  keep spacing  \n'), { id: 'assistant-copy-whitespace' })]}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /Copy assistant message/i }))
+
+    expect(writeClipboardText).toHaveBeenCalledWith('\n  keep spacing  \n')
   })
 
   it('renders user slash command with frozen label', () => {
