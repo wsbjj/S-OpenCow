@@ -161,7 +161,7 @@ describe('useSlashCommands', () => {
           category: 'command',
           description: 'Review PR',
           scope: 'project',
-          filePath: '.opencow/commands/review-pr.md',
+          filePath: '.s_opencow/commands/review-pr.md',
           attributes: { 'argument-hint': '<pr-number>' },
         }),
       ],
@@ -180,7 +180,7 @@ describe('useSlashCommands', () => {
     expect(cmd!.argumentHint).toBe('<pr-number>')
     expect(cmd!.scope).toBe('project')
     expect(cmd!.origin).toBe('project')
-    expect(cmd!.sourcePath).toBe('.opencow/commands/review-pr.md')
+    expect(cmd!.sourcePath).toBe('.s_opencow/commands/review-pr.md')
   })
 
   it('converts skill entry to SlashItem with scope and origin', async () => {
@@ -191,7 +191,7 @@ describe('useSlashCommands', () => {
           category: 'skill',
           description: 'Smart commit',
           scope: 'global',
-          filePath: '~/.opencow/skills/commit/SKILL.md',
+          filePath: '~/.s_opencow/skills/commit/SKILL.md',
         }),
       ],
     })

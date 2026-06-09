@@ -34,15 +34,15 @@ import { getProviderTheme } from './providerTheme'
 /**
  * Shorten an absolute install path for display.
  *
- * Global:  /Users/x/.opencow-dev/packages/foo → ~/.opencow-dev/packages/foo
- * Project: /Users/x/workspace/MyProject/.opencow-dev/packages/foo → MyProject/.opencow-dev/packages/foo
+ * Global:  /Users/x/.s_opencow-dev/packages/foo → ~/.s_opencow-dev/packages/foo
+ * Project: /Users/x/workspace/MyProject/.s_opencow-dev/packages/foo → MyProject/.s_opencow-dev/packages/foo
  *
  * The distinction matters — global and project paths must look different.
  */
 function shortenPath(fullPath: string): string {
   const normalized = fullPath.replace(/\\/g, '/')
-  // Split at the .opencow[-dev] / .claude boundary
-  const m = normalized.match(/^(.+?)([/]\.(?:opencow(?:-dev)?|claude)[/].+)$/)
+  // Split at the .s_opencow[-dev] / .claude boundary
+  const m = normalized.match(/^(.+?)([/]\.(?:s_opencow(?:-dev)?|claude)[/].+)$/)
   if (!m) {
     const segments = normalized.split('/')
     return segments.length > 4 ? '…/' + segments.slice(-4).join('/') : normalized
@@ -186,9 +186,7 @@ function StepList({ steps }: { steps: InstallStep[] }): React.JSX.Element {
 export function InstallDialog({
   open,
   skill,
-  installing,
   result,
-  error,
   progress,
   analysis,
   onInstall,

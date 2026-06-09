@@ -105,7 +105,7 @@ describe('IPC capability:view-bundle-file-content', () => {
   beforeEach(async () => {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'opencow-cap-bundle-ipc-'))
     projectRoot = path.join(tempRoot, 'project')
-    skillFilePath = path.join(projectRoot, '.opencow-dev', 'skills', 'alpha', 'SKILL.md')
+    skillFilePath = path.join(projectRoot, '.s_opencow-dev', 'skills', 'alpha', 'SKILL.md')
     await fs.mkdir(path.dirname(skillFilePath), { recursive: true })
     await fs.writeFile(skillFilePath, '# alpha', 'utf-8')
 

@@ -5,8 +5,8 @@
  *
  * Packages are preserved as coherent units under a `packages/` directory:
  *
- *   Global:  ~/.opencow/packages/superpowers/
- *   Project: {project}/.opencow/packages/superpowers/
+ *   Global:  ~/.s_opencow/packages/superpowers/
+ *   Project: {project}/.s_opencow/packages/superpowers/
  *
  * Each package directory mirrors the original repo layout:
  *
@@ -41,8 +41,8 @@ const log = createLogger('PackageStore')
 /**
  * Identifies where a package operation targets.
  *
- * - `scope: 'global'` → `~/.opencow/packages/`
- * - `scope: 'project'` + `projectPath` → `{project}/.opencow/packages/`
+ * - `scope: 'global'` → `~/.s_opencow/packages/`
+ * - `scope: 'project'` + `projectPath` → `{project}/.s_opencow/packages/`
  */
 export interface PackageTarget {
   scope: 'global' | 'project'
@@ -91,20 +91,20 @@ const CATEGORY_TO_DIR: Record<string, string> = Object.fromEntries(
 // ─── PackageStore ───────────────────────────────────────────────────
 
 export class PackageStore {
-  /** Default packages root (global): `~/.opencow/packages/` */
+  /** Default packages root (global): `~/.s_opencow/packages/` */
   private readonly globalPackagesRoot: string
 
   constructor(globalRoot: string) {
     // packages/ is a sibling to capabilities/
-    // globalRoot = ~/.opencow/capabilities → globalPackagesRoot = ~/.opencow/packages
+    // globalRoot = ~/.s_opencow/capabilities → globalPackagesRoot = ~/.s_opencow/packages
     this.globalPackagesRoot = path.join(path.dirname(globalRoot), 'packages')
   }
 
   /**
    * Resolve the packages root directory for a target scope.
    *
-   * - Global: `~/.opencow/packages/`
-   * - Project: `{project}/.opencow/packages/`
+   * - Global: `~/.s_opencow/packages/`
+   * - Project: `{project}/.s_opencow/packages/`
    */
   resolvePackagesRoot(target: PackageTarget): string {
     if (target.scope === 'project') {

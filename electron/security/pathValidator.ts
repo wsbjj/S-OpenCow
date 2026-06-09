@@ -11,9 +11,9 @@ import { APP_FS_NAME } from '@shared/appIdentity'
  * Allowed paths:
  * - ~/.claude/** (global capabilities — legacy Claude Code)
  * - ~/.claude.json (global MCP config)
- * - ~/.opencow/** and ~/.opencow-dev/** (Capability Center global store — prod & dev)
+ * - ~/.s_opencow/** and ~/.s_opencow-dev/** (Capability Center global store — prod & dev)
  * - {projectPath}/.claude/** (project capabilities — legacy Claude Code)
- * - {projectPath}/.opencow/** and .opencow-dev/** (project Capability Center store)
+ * - {projectPath}/.s_opencow/** and .s_opencow-dev/** (project Capability Center store)
  * - {projectPath}/.mcp.json (project MCP config)
  * - {projectPath}/CLAUDE.md (project rules)
  */
@@ -27,7 +27,7 @@ export function isAllowedCapabilityPath(targetPath: string, projectPath?: string
   if (resolved.startsWith(claudeDir + path.sep) || resolved === claudeDir) return true
   if (resolved === claudeJsonPath) return true
 
-  // Capability Center global store: ~/.opencow/ (prod) and ~/.opencow-dev/ (dev)
+  // Capability Center global store: ~/.s_opencow/ (prod) and ~/.s_opencow-dev/ (dev)
   // Both are OpenCow-managed directories; allowing both keeps the validator
   // environment-agnostic without importing Electron-dependent isDev().
   const opencowDir = path.resolve(path.join(os.homedir(), `.${APP_FS_NAME}`))
@@ -42,7 +42,7 @@ export function isAllowedCapabilityPath(targetPath: string, projectPath?: string
     if (resolved === path.resolve(projectPath, '.mcp.json')) return true
     if (resolved === path.resolve(projectPath, 'CLAUDE.md')) return true
 
-    // Project-level Capability Center store: {project}/.opencow/ or .opencow-dev/
+    // Project-level Capability Center store: {project}/.s_opencow/ or .s_opencow-dev/
     const projectOpencowDir = path.resolve(projectPath, `.${APP_FS_NAME}`)
     const projectOpencowDevDir = path.resolve(projectPath, `.${APP_FS_NAME}-dev`)
     if (resolved.startsWith(projectOpencowDir + path.sep)) return true

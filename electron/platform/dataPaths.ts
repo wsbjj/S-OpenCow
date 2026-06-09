@@ -25,7 +25,7 @@ export function isDev(): boolean {
  * Every persistent file the app reads or writes MUST be listed here.
  */
 export interface DataPaths {
-  /** Root data directory: `~/.opencow` (prod) or `~/.opencow-dev` (dev) */
+  /** Root data directory: `~/.s_opencow` (prod) or `~/.s_opencow-dev` (dev) */
   readonly root: string
   /** Hook scripts directory */
   readonly hooks: string
@@ -43,7 +43,7 @@ export interface DataPaths {
   readonly logs: string
   /** Encrypted credentials file (OS keychain-backed) */
   readonly credentials: string
-  /** Global capability store root: ~/.opencow/capabilities/ */
+  /** Global capability store root: ~/.s_opencow/capabilities/ */
   readonly capabilities: string
   /** Encrypted credentials for repo sources (OS keychain-backed) */
   readonly repoSourceCredentials: string
@@ -71,7 +71,7 @@ export function resolveDataPaths(): DataPaths {
   })
 }
 
-/** Resolve project-level capability store path: `{project}/.opencow[-dev]/` (no `capabilities/` subdirectory) */
+/** Resolve project-level capability store path: `{project}/.s_opencow[-dev]/` (no `capabilities/` subdirectory) */
 export function resolveProjectCapabilitiesPath(projectPath: string): string {
   const suffix = isDev() ? '-dev' : ''
   return join(projectPath, `.${APP_FS_NAME}${suffix}`)

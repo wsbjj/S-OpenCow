@@ -138,7 +138,7 @@ export function sanitizeCapabilityName(raw: string): string {
  * This prevents symlink-based escape attacks.
  *
  * @param context.globalRoot — If provided, used as the primary whitelist root.
- *   This allows dev-mode paths (e.g. ~/.opencow-dev/) to be whitelisted correctly
+ *   This allows dev-mode paths (e.g. ~/.s_opencow-dev/) to be whitelisted correctly
  *   without hardcoding the suffix in the security module.
  */
 export async function validateCapabilityPath(
@@ -196,10 +196,10 @@ export async function validateCapabilityPath(
 /**
  * Whitelist check for capability paths.
  * Allows:
- *   - ~/.opencow/** (global Capability Center)
+ *   - ~/.s_opencow/** (global Capability Center)
  *   - ~/.claude/** (legacy Claude Code)
  *   - ~/.claude.json (global MCP config)
- *   - {project}/.opencow/** (project Capability Center)
+ *   - {project}/.s_opencow/** (project Capability Center)
  *   - {project}/.claude/** (project Claude Code)
  *   - {project}/.mcp.json (project MCP config)
  */
@@ -212,11 +212,11 @@ function isAllowedCapabilityPath(resolved: string, projectPath?: string, globalR
     if (resolved.startsWith(resolvedRoot + path.sep) || resolved === resolvedRoot) return true
   }
 
-  // Global Capability Center store: ~/.opencow/ (fallback for unconfigured callers)
+  // Global Capability Center store: ~/.s_opencow/ (fallback for unconfigured callers)
   const opencowDir = path.resolve(home, `.${APP_FS_NAME}`)
   if (resolved.startsWith(opencowDir + path.sep) || resolved === opencowDir) return true
 
-  // Dev-mode store: ~/.opencow-dev/
+  // Dev-mode store: ~/.s_opencow-dev/
   const opencowDevDir = path.resolve(home, `.${APP_FS_NAME}-dev`)
   if (resolved.startsWith(opencowDevDir + path.sep) || resolved === opencowDevDir) return true
 

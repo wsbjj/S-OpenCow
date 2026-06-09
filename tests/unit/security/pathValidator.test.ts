@@ -27,24 +27,24 @@ describe('pathValidator', () => {
   })
 
   // ── Capability Center global store ────────────────────────────────
-  it('allows paths within ~/.opencow/ (production)', () => {
-    const p = path.join(os.homedir(), '.opencow', 'capabilities', 'skills', 'test', 'skill.md')
+  it('allows paths within ~/.s_opencow/ (production)', () => {
+    const p = path.join(os.homedir(), '.s_opencow', 'capabilities', 'skills', 'test', 'skill.md')
     expect(isAllowedCapabilityPath(p)).toBe(true)
   })
 
-  it('allows paths within ~/.opencow-dev/ (development)', () => {
-    const p = path.join(os.homedir(), '.opencow-dev', 'capabilities', 'skills', 'test', 'skill.md')
+  it('allows paths within ~/.s_opencow-dev/ (development)', () => {
+    const p = path.join(os.homedir(), '.s_opencow-dev', 'capabilities', 'skills', 'test', 'skill.md')
     expect(isAllowedCapabilityPath(p)).toBe(true)
   })
 
   // ── Capability Center project store ───────────────────────────────
-  it('allows project-level .opencow/ paths', () => {
-    const p = '/project/.opencow/skills/my-skill/skill.md'
+  it('allows project-level .s_opencow/ paths', () => {
+    const p = '/project/.s_opencow/skills/my-skill/skill.md'
     expect(isAllowedCapabilityPath(p, '/project')).toBe(true)
   })
 
-  it('allows project-level .opencow-dev/ paths', () => {
-    const p = '/project/.opencow-dev/skills/my-skill/skill.md'
+  it('allows project-level .s_opencow-dev/ paths', () => {
+    const p = '/project/.s_opencow-dev/skills/my-skill/skill.md'
     expect(isAllowedCapabilityPath(p, '/project')).toBe(true)
   })
 

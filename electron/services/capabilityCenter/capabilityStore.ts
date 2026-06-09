@@ -103,7 +103,7 @@ export type MountProvider = () => Promise<CapabilityMount[]>
 // ─── Config ─────────────────────────────────────────────────────────────
 
 export interface CapabilityStoreConfig {
-  /** ~/.opencow/capabilities/ */
+  /** ~/.s_opencow/capabilities/ */
   globalRoot: string
   /** External mount providers (plugins, marketplace packages, etc.) — global scope only */
   mountProviders?: MountProvider[]

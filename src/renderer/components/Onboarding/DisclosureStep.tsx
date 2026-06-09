@@ -55,7 +55,7 @@ export function DisclosureStep({
             <div className="space-y-2 ml-[26px]">
               <div className="flex items-start gap-2">
                 <code className="rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-xs font-mono break-all">
-                  ~/.opencow/
+                  ~/.s_opencow/
                 </code>
               </div>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">
@@ -63,7 +63,7 @@ export function DisclosureStep({
               </p>
               <div className="flex items-start gap-2">
                 <code className="rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-xs font-mono break-all">
-                  ~/.opencow/hooks/event-logger.sh
+                  ~/.s_opencow/hooks/event-logger.sh
                 </code>
               </div>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">

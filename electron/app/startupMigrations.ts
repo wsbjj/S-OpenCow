@@ -31,9 +31,9 @@ const log = createLogger('Migrations')
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface PreDatabaseMigrationConfig {
-  /** Legacy directory name to migrate from (e.g. '.ccboard'). */
-  legacyDirName: string
-  /** Target directory name (e.g. '.opencow'). */
+  /** Legacy directory names to migrate from (e.g. '.opencow', '.ccboard'). */
+  legacyDirNames: readonly string[]
+  /** Target directory name (e.g. '.s_opencow'). */
   targetDirName: string
   /** Data paths resolved for the current platform. */
   dataPaths: DataPaths
@@ -52,26 +52,31 @@ export interface PostDatabaseMigrationConfig {
 /**
  * Run migrations that must complete before the database is opened.
  *
- * Phase -1: Migrate legacy data directory (.ccboard → .opencow)
+ * Phase -1: Migrate legacy data directories (.opencow/.ccboard → .s_opencow)
  * Phase -0.5: Rewrite hook marker entries after brand migration
  */
 export async function runPreDatabaseMigrations(config: PreDatabaseMigrationConfig): Promise<void> {
-  const { legacyDirName, targetDirName, dataPaths, hookEnv } = config
+  const { legacyDirNames, targetDirName, dataPaths, hookEnv } = config
+  let didMigrate = false
 
-  // Phase -1: Data directory migration (atomic and idempotent)
-  const migrationResult = await migrateDataDirectory({
-    legacyDirName,
-    targetDirName,
-    fileRenames: [
-      { from: 'db/ccboard.db', to: 'db/app.db' },  // Decouple DB filename from brand name
-    ],
-  }).catch((err) => {
-    log.error('Data migration failed — blocking startup to prevent empty DB overwrite', err)
-    throw err
-  })
+  for (const legacyDirName of legacyDirNames) {
+    // Phase -1: Data directory migration (atomic and idempotent)
+    const migrationResult = await migrateDataDirectory({
+      legacyDirName,
+      targetDirName,
+      fileRenames: [
+        { from: 'db/ccboard.db', to: 'db/app.db' },  // Decouple DB filename from brand name
+      ],
+    }).catch((err) => {
+      log.error('Data migration failed — blocking startup to prevent empty DB overwrite', err)
+      throw err
+    })
+
+    didMigrate = didMigrate || migrationResult.didMigrate
+  }
 
   // Phase -0.5: Hook marker migration
-  if (migrationResult.didMigrate) {
+  if (didMigrate) {
     await removeLegacyHookEntries('__ccboard__')
     await installHooks(dataPaths, hookEnv)
     log.info('Brand migration complete: data directory migrated, hooks reinstalled')

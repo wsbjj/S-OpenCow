@@ -75,7 +75,7 @@ const VERSION_STRING_MAX_LEN = 200
 // ─── Config ──────────────────────────────────────────────────────────────
 
 export interface CapabilityCenterConfig {
-  /** ~/.opencow/capabilities/ */
+  /** ~/.s_opencow/capabilities/ */
   globalCapabilitiesRoot: string
   /** Kysely database instance (v3.1 #8) */
   db: Kysely<Database>

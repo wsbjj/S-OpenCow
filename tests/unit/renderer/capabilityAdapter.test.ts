@@ -32,7 +32,7 @@ describe('capabilityToSlashItem', () => {
       category: 'command',
       description: 'Review pull request',
       attributes: { 'argument-hint': '<pr>' },
-      filePath: '.opencow/commands/review-pr.md',
+      filePath: '.s_opencow/commands/review-pr.md',
       scope: 'project',
     })
 
@@ -46,7 +46,7 @@ describe('capabilityToSlashItem', () => {
       category: 'command',
       order: 1,
       scope: 'project',
-      sourcePath: '.opencow/commands/review-pr.md',
+      sourcePath: '.s_opencow/commands/review-pr.md',
     })
     expect(item.presentation).toBeUndefined()
     expect(item.executionMeta).toBeUndefined()

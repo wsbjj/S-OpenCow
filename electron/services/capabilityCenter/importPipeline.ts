@@ -1240,7 +1240,7 @@ export class ImportPipeline {
    * Infer a hook name from its command path.
    *
    * Examples:
-   *   "~/.opencow/hooks/deploy-guard.sh" → "deploy-guard"
+   *   "~/.s_opencow/hooks/deploy-guard.sh" → "deploy-guard"
    *   "bash -c 'echo test'" → "cli-hook-PreToolUse-a1b2c3d4"
    */
   private inferHookName(command: string, eventName: string): string | null {

@@ -16,8 +16,8 @@ export const APP_NAME = 'OpenCow' as const
 declare const __APP_VERSION__: string
 export const APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
-/** Filesystem-safe name (used for the ~/.opencow data directory) */
-export const APP_FS_NAME = 'opencow' as const
+/** Filesystem-safe name (used for the ~/.s_opencow data directory) */
+export const APP_FS_NAME = 's_opencow' as const
 
 /** Short brand description used in the identity system prompt */
 export const APP_DESCRIPTION = 'an AI-powered assistant' as const

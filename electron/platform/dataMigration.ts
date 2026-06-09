@@ -31,7 +31,7 @@ const log = createLogger('DataMigration')
 export interface DataMigrationOptions {
   /** Legacy data directory name (with dot prefix), e.g. '.ccboard' */
   readonly legacyDirName: string
-  /** Target data directory name (with dot prefix), e.g. '.opencow' */
+  /** Target data directory name (with dot prefix), e.g. '.s_opencow' */
   readonly targetDirName: string
   /**
    * List of file renames inside the directory (paths relative to root).
@@ -66,7 +66,7 @@ export interface DataMigrationResult {
 /**
  * Execute data directory brand migration (atomic, idempotent).
  *
- * Processes both the production directory (`.opencow`) and development directory (`.opencow-dev`).
+ * Processes both the production directory (`.s_opencow`) and development directory (`.s_opencow-dev`).
  */
 export async function migrateDataDirectory(
   options: DataMigrationOptions,

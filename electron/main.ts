@@ -423,10 +423,10 @@ app.whenReady().then(async () => {
   })
 
   // ── Phase -1 & -0.5: Pre-database migrations ────────────────────────
-  // Brand migration (.ccboard → .opencow) + hook marker rewrite.
+  // Data directory migrations (legacy .opencow/.ccboard → .s_opencow) + hook marker rewrite.
   // Must complete before database is opened.
   await runPreDatabaseMigrations({
-    legacyDirName: '.ccboard',
+    legacyDirNames: ['.opencow', '.ccboard'],
     targetDirName: `.${APP_FS_NAME}`,
     dataPaths,
     hookEnv,
@@ -498,7 +498,7 @@ app.whenReady().then(async () => {
     eventListener, executionStore, noteStore, providerService,
     marketplaceService, repoSourceRegistry, gitService, memoryService,
     issueProviderService, issueSyncEngine,
-    changeQueueStore, changeQueueService, pushEngine, issueCommentService, syncLogStore,
+    changeQueueStore, pushEngine, issueCommentService, syncLogStore,
   } = svc
 
   // Wire up TrayIssueService for issue-centric tray popover data

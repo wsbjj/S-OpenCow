@@ -167,7 +167,7 @@ export function InstallStep({
                 <ul className="space-y-2 text-sm text-[hsl(var(--foreground))]">
                   <li className="flex items-center gap-2">
                     <div className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
-                    {t('install.preStepCreateDir', { path: '~/.opencow/' })}
+                    {t('install.preStepCreateDir', { path: '~/.s_opencow/' })}
                   </li>
                   <li className="flex items-center gap-2">
                     <div className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />

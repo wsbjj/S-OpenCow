@@ -108,7 +108,7 @@ describe('FileContentAccessService', () => {
 
   it('skips symlink entries when listing capability bundle files', async () => {
     const projectRoot = path.join(tempRoot, 'project')
-    const skillFilePath = path.join(projectRoot, '.opencow-dev', 'skills', 'alpha', 'SKILL.md')
+    const skillFilePath = path.join(projectRoot, '.s_opencow-dev', 'skills', 'alpha', 'SKILL.md')
     const scriptsDir = path.join(path.dirname(skillFilePath), 'scripts')
     await fs.mkdir(scriptsDir, { recursive: true })
     await fs.writeFile(skillFilePath, '# alpha', 'utf-8')
