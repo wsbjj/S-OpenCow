@@ -450,6 +450,27 @@ describe('SessionOrchestrator.startSession — idempotency', () => {
     await orchestrator.stopSession(sessionId)
   })
 
+  it('loads persisted message bodies when listing full sessions', async () => {
+    const persistedSession = makePersistedSession({
+      id: 'ccb-persisted-full-messages',
+      state: 'stopped',
+      messages: [
+        {
+          id: 'msg-full-1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'artifact content' }],
+          timestamp: 1,
+        },
+      ],
+    })
+    await deps.store.save(persistedSession)
+
+    const sessions = await orchestrator.listFullSessions()
+    const loaded = sessions.find((session) => session.id === persistedSession.id)
+
+    expect(loaded?.messages).toEqual(persistedSession.messages)
+  })
+
   it('does not reuse persisted Claude runtime model after engine drift switch to codex', async () => {
     deps = {
       ...makeDeps(db, tmpDir, 'codex'),

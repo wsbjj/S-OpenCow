@@ -4,9 +4,38 @@ import type { Kysely } from 'kysely'
 import type { Database } from '../database/types'
 import type { ManagedSessionInfo } from '../../src/shared/types'
 import {
+  managedSessionInfoToMessagesRow,
   managedSessionInfoToRow,
   managedSessionRowToInfo,
 } from './mappers/managedSessionRowMapper'
+
+const MANAGED_SESSION_COLUMNS = [
+  'id',
+  'sdk_session_id',
+  'engine_kind',
+  'engine_state_json',
+  'state',
+  'stop_reason',
+  'origin_source',
+  'origin_id',
+  'origin_extra',
+  'project_path',
+  'project_id',
+  'desired_engine_kind',
+  'desired_model',
+  'model',
+  'created_at',
+  'last_activity',
+  'active_duration_ms',
+  'active_started_at',
+  'total_cost_usd',
+  'input_tokens',
+  'output_tokens',
+  'last_input_tokens',
+  'activity',
+  'error',
+  'execution_context',
+] as const
 
 /**
  * Persists ManagedSessionInfo snapshots to SQLite so that
@@ -30,55 +59,78 @@ export class ManagedSessionStore {
 
   async save(session: ManagedSessionInfo): Promise<void> {
     const row = managedSessionInfoToRow(session)
+    const messagesRow = managedSessionInfoToMessagesRow(session)
 
-    // Upsert: insert or replace on conflict
-    await this.db
-      .insertInto('managed_sessions')
-      .values(row)
-      .onConflict((oc) =>
-        oc.column('id').doUpdateSet({
-          sdk_session_id: row.sdk_session_id,
-          engine_kind: row.engine_kind,
-          engine_state_json: row.engine_state_json,
-          state: row.state,
-          stop_reason: row.stop_reason,
-          origin_source: row.origin_source,
-          origin_id: row.origin_id,
-          origin_extra: row.origin_extra,
-          project_path: row.project_path,
-          project_id: row.project_id,
-          desired_engine_kind: row.desired_engine_kind,
-          desired_model: row.desired_model,
-          model: row.model,
-          messages: row.messages,
-          created_at: row.created_at,
-          last_activity: row.last_activity,
-          active_duration_ms: row.active_duration_ms,
-          active_started_at: row.active_started_at,
-          total_cost_usd: row.total_cost_usd,
-          input_tokens: row.input_tokens,
-          output_tokens: row.output_tokens,
-          last_input_tokens: row.last_input_tokens,
-          activity: row.activity,
-          error: row.error,
-          execution_context: row.execution_context,
-        })
-      )
-      .execute()
+    await this.db.transaction().execute(async (trx) => {
+      await trx
+        .insertInto('managed_sessions')
+        .values(row)
+        .onConflict((oc) =>
+          oc.column('id').doUpdateSet({
+            sdk_session_id: row.sdk_session_id,
+            engine_kind: row.engine_kind,
+            engine_state_json: row.engine_state_json,
+            state: row.state,
+            stop_reason: row.stop_reason,
+            origin_source: row.origin_source,
+            origin_id: row.origin_id,
+            origin_extra: row.origin_extra,
+            project_path: row.project_path,
+            project_id: row.project_id,
+            desired_engine_kind: row.desired_engine_kind,
+            desired_model: row.desired_model,
+            model: row.model,
+            created_at: row.created_at,
+            last_activity: row.last_activity,
+            active_duration_ms: row.active_duration_ms,
+            active_started_at: row.active_started_at,
+            total_cost_usd: row.total_cost_usd,
+            input_tokens: row.input_tokens,
+            output_tokens: row.output_tokens,
+            last_input_tokens: row.last_input_tokens,
+            activity: row.activity,
+            error: row.error,
+            execution_context: row.execution_context,
+          })
+        )
+        .execute()
+
+      await trx
+        .insertInto('managed_session_messages')
+        .values(messagesRow)
+        .onConflict((oc) =>
+          oc.column('session_id').doUpdateSet({
+            messages: messagesRow.messages,
+          })
+        )
+        .execute()
+    })
   }
 
   async remove(sessionId: string): Promise<void> {
     await this.db.deleteFrom('managed_sessions').where('id', '=', sessionId).execute()
   }
 
+  private async getMessagesJson(sessionId: string): Promise<string> {
+    const row = await this.db
+      .selectFrom('managed_session_messages')
+      .select('messages')
+      .where('session_id', '=', sessionId)
+      .executeTakeFirst()
+
+    return row?.messages ?? '[]'
+  }
+
   async get(sessionId: string): Promise<ManagedSessionInfo | null> {
     const row = await this.db
       .selectFrom('managed_sessions')
-      .selectAll()
+      .select(MANAGED_SESSION_COLUMNS)
       .where('id', '=', sessionId)
       .executeTakeFirst()
 
-    return row ? managedSessionRowToInfo(row) : null
+    if (!row) return null
+
+    return managedSessionRowToInfo(row, await this.getMessagesJson(row.id))
   }
 
   /**
@@ -96,19 +148,21 @@ export class ManagedSessionStore {
 
     const idMatch = await this.db
       .selectFrom('managed_sessions')
-      .selectAll()
+      .select(MANAGED_SESSION_COLUMNS)
       .where('id', 'in', refs)
       .orderBy('last_activity', 'desc')
       .executeTakeFirst()
-    if (idMatch) return managedSessionRowToInfo(idMatch)
+    if (idMatch) return managedSessionRowToInfo(idMatch, await this.getMessagesJson(idMatch.id))
 
     const engineRefMatch = await this.db
       .selectFrom('managed_sessions')
-      .selectAll()
+      .select(MANAGED_SESSION_COLUMNS)
       .where('sdk_session_id', 'in', refs)
       .orderBy('last_activity', 'desc')
       .executeTakeFirst()
-    if (engineRefMatch) return managedSessionRowToInfo(engineRefMatch)
+    if (engineRefMatch) {
+      return managedSessionRowToInfo(engineRefMatch, await this.getMessagesJson(engineRefMatch.id))
+    }
 
     return null
   }
@@ -150,7 +204,7 @@ export class ManagedSessionStore {
   async list(limit: number = ManagedSessionStore.DEFAULT_LIST_LIMIT): Promise<ManagedSessionInfo[]> {
     let query = this.db
       .selectFrom('managed_sessions')
-      .selectAll()
+      .select(MANAGED_SESSION_COLUMNS)
       .orderBy('last_activity', 'desc')
 
     if (Number.isFinite(limit)) {
@@ -159,6 +213,6 @@ export class ManagedSessionStore {
 
     const rows = await query.execute()
 
-    return rows.map(managedSessionRowToInfo)
+    return rows.map((row) => managedSessionRowToInfo(row, '[]'))
   }
 }

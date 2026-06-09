@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ManagedSessionTable } from '../../database/types'
+import type { ManagedSessionMessageTable, ManagedSessionTable } from '../../database/types'
 import type {
   AIEngineKind,
   ManagedSessionInfo,
@@ -39,6 +39,15 @@ function parseJsonObject(raw: string | null): Record<string, unknown> | null {
     // ignored — caller falls back to defaults
   }
   return null
+}
+
+function parseMessages(raw: string): ManagedSessionMessage[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? (parsed as ManagedSessionMessage[]) : []
+  } catch {
+    return []
+  }
 }
 
 function rowToOrigin(source: string, id: string | null, extra: string | null): SessionOrigin {
@@ -147,7 +156,10 @@ function originToColumns(origin: SessionOrigin): {
   }
 }
 
-export function managedSessionRowToInfo(row: ManagedSessionTable): ManagedSessionInfo {
+export function managedSessionRowToInfo(
+  row: ManagedSessionTable,
+  messagesJson: string,
+): ManagedSessionInfo {
   const engineSessionRef = row.sdk_session_id
   const engineKind = normalizeEngineKind(row.engine_kind)
   return {
@@ -163,7 +175,7 @@ export function managedSessionRowToInfo(row: ManagedSessionTable): ManagedSessio
     desiredEngineKind: row.desired_engine_kind ? normalizeEngineKind(row.desired_engine_kind) : null,
     desiredModel: row.desired_model,
     model: row.model,
-    messages: JSON.parse(row.messages) as ManagedSessionMessage[],
+    messages: parseMessages(messagesJson),
     createdAt: row.created_at,
     lastActivity: row.last_activity,
     activeDurationMs: row.active_duration_ms,
@@ -180,6 +192,15 @@ export function managedSessionRowToInfo(row: ManagedSessionTable): ManagedSessio
     executionContext: row.execution_context
       ? (JSON.parse(row.execution_context) as SessionExecutionContext)
       : null,
+  }
+}
+
+export function managedSessionInfoToMessagesRow(
+  session: ManagedSessionInfo,
+): ManagedSessionMessageTable {
+  return {
+    session_id: session.id,
+    messages: JSON.stringify(session.messages),
   }
 }
 
@@ -203,7 +224,6 @@ export function managedSessionInfoToRow(session: ManagedSessionInfo): ManagedSes
     desired_engine_kind: session.desiredEngineKind ?? null,
     desired_model: session.desiredModel ?? null,
     model: session.model,
-    messages: JSON.stringify(session.messages),
     created_at: session.createdAt,
     last_activity: session.lastActivity,
     active_duration_ms: session.activeDurationMs,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import type { Kysely } from 'kysely'
+import { sql, type Kysely } from 'kysely'
 import { createTestDb } from '../../helpers/testDb'
 import { ManagedSessionStore } from '../../../electron/services/managedSessionStore'
 import { getOriginIssueId, type ManagedSessionInfo } from '../../../src/shared/types'
@@ -40,13 +40,34 @@ describe('ManagedSessionStore', () => {
   let close: () => Promise<void>
   let store: ManagedSessionStore
 
+  async function listTableColumns(
+    tableName: 'managed_sessions' | 'managed_session_messages',
+  ): Promise<string[]> {
+    const result = tableName === 'managed_sessions'
+      ? await sql<{ name: string }>`PRAGMA table_info(managed_sessions)`.execute(db)
+      : await sql<{ name: string }>`PRAGMA table_info(managed_session_messages)`.execute(db)
+    return result.rows.map((column) => column.name)
+  }
+
   beforeEach(async () => {
     ({ db, close } = await createTestDb())
     store = new ManagedSessionStore(db)
   })
 
   afterEach(async () => {
-    await close()
+    if (close) {
+      await close()
+    }
+  })
+
+  describe('schema', () => {
+    it('migrates messages out of the managed_sessions table', async () => {
+      await expect(listTableColumns('managed_sessions')).resolves.not.toContain('messages')
+      await expect(listTableColumns('managed_session_messages')).resolves.toEqual([
+        'session_id',
+        'messages',
+      ])
+    })
   })
 
   describe('load', () => {
@@ -127,6 +148,48 @@ describe('ManagedSessionStore', () => {
       expect(loaded?.model).toBe('claude-sonnet-4-6')
     })
 
+    it('updates split message storage when an existing session is upserted', async () => {
+      await store.save(makeSession({
+        id: 'ccb-msg-upsert-1',
+        messages: [
+          {
+            id: 'msg-old',
+            role: 'user',
+            content: [{ type: 'text', text: 'old message' }],
+            timestamp: 1,
+          },
+        ],
+      }))
+
+      await store.save(makeSession({
+        id: 'ccb-msg-upsert-1',
+        messages: [
+          {
+            id: 'msg-new',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'new message' }],
+            timestamp: 2,
+          },
+        ],
+      }))
+
+      const row = await db
+        .selectFrom('managed_session_messages')
+        .select(['session_id', 'messages'])
+        .where('session_id', '=', 'ccb-msg-upsert-1')
+        .executeTakeFirstOrThrow()
+
+      expect(row.session_id).toBe('ccb-msg-upsert-1')
+      expect(JSON.parse(row.messages)).toEqual([
+        {
+          id: 'msg-new',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'new message' }],
+          timestamp: 2,
+        },
+      ])
+    })
+
     it('round-trips review origin payload fields', async () => {
       await store.save(makeSession({
         id: 'ccb-review-1',
@@ -148,6 +211,27 @@ describe('ManagedSessionStore', () => {
     })
   })
 
+  describe('list', () => {
+    it('omits message bodies from list results', async () => {
+      await store.save(makeSession({
+        id: 'ccb-list-metadata-only-1',
+        messages: [
+          {
+            id: 'msg-heavy',
+            role: 'user',
+            content: [{ type: 'text', text: 'large body' }],
+            timestamp: 1,
+          },
+        ],
+      }))
+
+      const [listed] = await store.list()
+
+      expect(listed.id).toBe('ccb-list-metadata-only-1')
+      expect(listed.messages).toEqual([])
+    })
+  })
+
   describe('remove', () => {
     it('removes a session from the store', async () => {
       await store.save(makeSession({ id: 'ccb-del-1' }))
@@ -155,6 +239,30 @@ describe('ManagedSessionStore', () => {
 
       expect(await store.list()).toHaveLength(0)
       expect(await store.get('ccb-del-1')).toBeNull()
+    })
+
+    it('cascades message storage removal when a session is deleted', async () => {
+      await store.save(makeSession({
+        id: 'ccb-del-messages-1',
+        messages: [
+          {
+            id: 'msg-delete',
+            role: 'user',
+            content: [{ type: 'text', text: 'delete me' }],
+            timestamp: 1,
+          },
+        ],
+      }))
+
+      await store.remove('ccb-del-messages-1')
+
+      const row = await db
+        .selectFrom('managed_session_messages')
+        .select('session_id')
+        .where('session_id', '=', 'ccb-del-messages-1')
+        .executeTakeFirst()
+
+      expect(row).toBeUndefined()
     })
 
     it('is a no-op for non-existent session', async () => {
@@ -171,6 +279,31 @@ describe('ManagedSessionStore', () => {
       const result = await store.get('ccb-get-1')
       expect(result).not.toBeNull()
       expect(getOriginIssueId(result!.origin)).toBe('issue-42')
+    })
+
+    it('loads message bodies from split storage for session details', async () => {
+      await store.save(makeSession({
+        id: 'ccb-get-messages-1',
+        messages: [
+          {
+            id: 'msg-detail',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'detail body' }],
+            timestamp: 1,
+          },
+        ],
+      }))
+
+      const loaded = await store.get('ccb-get-messages-1')
+
+      expect(loaded?.messages).toEqual([
+        {
+          id: 'msg-detail',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'detail body' }],
+          timestamp: 1,
+        },
+      ])
     })
 
     it('returns null for non-existent id', async () => {

@@ -15,7 +15,6 @@ import {
   type SessionOrigin,
   type SessionSnapshot,
   type StartSessionNativeToolAllowItem,
-  type StartSessionPolicy,
   type SessionStopReason,
   type SetSessionModelInput,
   type StartSessionInput,
@@ -1606,7 +1605,6 @@ export class SessionOrchestrator {
     const fallbackIssueId = getOriginIssueId(session.origin) ?? undefined
 
     const spawnCategory = classifySpawnError(err)
-    let snap: SessionSnapshot
 
     if (spawnCategory === 'process_corrupted') {
       // EBADF: file descriptor leak in the Electron process.
@@ -1618,7 +1616,7 @@ export class SessionOrchestrator {
         message: `Session process failed (${code}). Please restart OpenCow to recover.`,
       })
       this.runtimes.delete(sessionId)
-      snap = this.dispatchSessionTerminal({
+      this.dispatchSessionTerminal({
         sessionId,
         session,
         terminalEvent: 'error',
@@ -1637,7 +1635,7 @@ export class SessionOrchestrator {
         // Clear operational fields since the lifecycle is dead.
         rt.pipeline = null
         rt.policy = null
-        snap = this.dispatchSessionTerminal({
+        this.dispatchSessionTerminal({
           sessionId,
           session,
           terminalEvent: 'idle',
@@ -1651,7 +1649,7 @@ export class SessionOrchestrator {
           message: `Session process failed (${code}) after ${count} retries. Please restart OpenCow.`,
         })
         this.runtimes.delete(sessionId)
-        snap = this.dispatchSessionTerminal({
+        this.dispatchSessionTerminal({
           sessionId,
           session,
           terminalEvent: 'error',
@@ -1665,7 +1663,7 @@ export class SessionOrchestrator {
         message: err instanceof Error ? err.message : String(err),
       })
       this.runtimes.delete(sessionId)
-      snap = this.dispatchSessionTerminal({
+      this.dispatchSessionTerminal({
         sessionId,
         session,
         terminalEvent: 'error',
@@ -1721,7 +1719,10 @@ export class SessionOrchestrator {
   async listFullSessions(): Promise<ManagedSessionInfo[]> {
     const active = Array.from(this.runtimes.values()).map((rt) => rt.session.toPersistenceRecord())
     const activeIds = new Set(active.map((s) => s.id))
-    const persisted = (await this.store.list()).filter((s) => !activeIds.has(s.id))
+    const persistedMetadata = (await this.store.list()).filter((s) => !activeIds.has(s.id))
+    const persisted = await Promise.all(
+      persistedMetadata.map(async (session) => (await this.store.get(session.id)) ?? session),
+    )
     return [...active, ...persisted]
   }
 
