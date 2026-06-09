@@ -1005,6 +1005,8 @@ export function registerIPCHandlers(deps: IPCDeps): void {
     })
     registerHandler('provider:get-credential', (engineKind, mode) =>
       providerService.getCredential(engineKind, mode))
+    registerHandler('provider:list-models', (engineKind) =>
+      providerService.listModels(engineKind))
     registerHandler('background-model:get-credential', () =>
       providerService.getBackgroundModelCredential())
     registerHandler('background-model:set-credential', (credential) =>
@@ -1048,6 +1050,9 @@ export function registerIPCHandlers(deps: IPCDeps): void {
     })
     registerHandler('command:send-message', (sessionId, content) =>
       orchestrator.sendMessage(sessionId, content)
+    )
+    registerHandler('command:set-session-model', (sessionId, selection) =>
+      orchestrator.setSessionModel(sessionId, selection)
     )
     registerHandler('command:answer-question', (sessionId, requestId, answer) => {
       const registry = orchestrator.getPendingQuestionRegistry()

@@ -143,6 +143,12 @@ export class ManagedSession {
    */
   private modelOverride: string | null = null
   /**
+   * Optional engine selected by the user for the next turn.
+   *
+   * Null means the current session engine is already the desired engine.
+   */
+  private desiredEngineKind: AIEngineKind | null = null
+  /**
    * Runtime-resolved model reported by the engine (for UI/telemetry only).
    */
   private model: string | null
@@ -175,6 +181,7 @@ export class ManagedSession {
     this.engineKind = engineKind
     this.engineState = engineState
     this.modelOverride = startupModelOverride ?? null
+    this.desiredEngineKind = null
     this.model = null
     const now = Date.now()
     this.createdAt = now
@@ -278,6 +285,29 @@ export class ManagedSession {
   /** Session-level startup model override (if explicitly configured). */
   getModelOverride(): string | null {
     return this.modelOverride
+  }
+
+  /** Session-level desired engine, if it differs from the current runtime engine. */
+  getDesiredEngineKind(): AIEngineKind | null {
+    return this.desiredEngineKind
+  }
+
+  /**
+   * Store the user's desired model selection for the next lifecycle spawn.
+   *
+   * This intentionally does not update `model`, which is runtime telemetry
+   * reported by the engine. The orchestrator applies the desired engine/model
+   * before the next turn starts.
+   */
+  setDesiredModel(selection: { engineKind: AIEngineKind; model?: string | null }): void {
+    const trimmedModel = typeof selection.model === 'string' ? selection.model.trim() : ''
+    this.desiredEngineKind = selection.engineKind === this.engineKind ? null : selection.engineKind
+    this.modelOverride = trimmedModel || null
+    this.config = {
+      ...this.config,
+      ...(this.modelOverride ? { model: this.modelOverride } : { model: undefined }),
+    }
+    this.lastActivity = Date.now()
   }
 
   private setError(message: string): void {
@@ -925,6 +955,8 @@ export class ManagedSession {
       origin: this.config.origin,
       projectPath: this.config.projectPath ?? null,
       projectId: this.config.projectId ?? null,
+      desiredEngineKind: this.desiredEngineKind,
+      desiredModel: this.modelOverride,
       model: this.model,
       createdAt: this.createdAt,
       lastActivity: this.lastActivity,
@@ -995,8 +1027,9 @@ export class ManagedSession {
       startupCwd: info.executionContext?.cwd ?? info.projectPath ?? process.cwd(),
       projectPath: info.projectPath ?? undefined,
       projectId: info.projectId ?? undefined,
+      model: info.desiredModel ?? undefined,
       // IMPORTANT: persisted `info.model` is runtime-observed model telemetry,
-      // not a startup override. Never feed it back into bootstrap config.
+      // not a startup override. The desired model is stored separately.
     })
     // Override auto-generated id with the persisted one
     session.sessionId = info.id
@@ -1005,7 +1038,8 @@ export class ManagedSession {
     }
     session.state = info.state
     session._stopReason = info.stopReason ?? null
-    session.modelOverride = null
+    session.desiredEngineKind = info.desiredEngineKind ?? null
+    session.modelOverride = info.desiredModel ?? null
     session.model = info.model
     session.messages = info.messages.map((m) => ({ ...m }))
     session.createdAt = info.createdAt

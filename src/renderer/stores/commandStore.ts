@@ -39,6 +39,7 @@ import type {
   ManagedSessionMessage,
   ManagedSessionState,
   StartSessionInput,
+  SetSessionModelInput,
   UserMessageContent,
   TodoWriteItem,
 } from '@shared/types'
@@ -202,6 +203,7 @@ export interface CommandStore {
 
   /** Raw session start — IPC only, no cross-store side effects. */
   startSessionRaw: (input: StartSessionInput) => Promise<string>
+  setSessionModel: (sessionId: string, selection: SetSessionModelInput) => Promise<boolean>
   sendMessage: (sessionId: string, content: UserMessageContent) => Promise<boolean>
   resumeSession: (sessionId: string, content: UserMessageContent) => Promise<boolean>
   stopSession: (sessionId: string) => Promise<boolean>
@@ -764,6 +766,33 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
 
   startSessionRaw: async (input) => {
     return getAppAPI()['command:start-session'](input)
+  },
+
+  setSessionModel: async (sessionId, selection) => {
+    const previous = get().sessionById[sessionId]
+    if (previous) {
+      const desiredModel = selection.model?.trim() || null
+      const desiredEngineKind = selection.engineKind === previous.engineKind ? null : selection.engineKind
+      get().upsertManagedSession({
+        ...previous,
+        desiredEngineKind,
+        desiredModel,
+        lastActivity: Date.now(),
+      })
+    }
+
+    try {
+      const result = await getAppAPI()['command:set-session-model'](sessionId, selection)
+      if (!result && previous) {
+        get().upsertManagedSession(previous)
+      }
+      return result
+    } catch (error) {
+      if (previous) {
+        get().upsertManagedSession(previous)
+      }
+      throw error
+    }
   },
 
   sendMessage: async (sessionId, content) => {

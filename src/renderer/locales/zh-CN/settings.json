@@ -109,7 +109,22 @@
     "customAuthStyleHint_bearer": "Key 通过 Authorization: Bearer 传递（OpenRouter 风格）。",
     "defaultModel": "默认模型",
     "defaultModelPlaceholder": "选择或输入模型 ID",
-    "defaultModelHint": "覆盖所有新会话的默认模型。留空则使用服务商默认模型。",
+    "defaultModelHint": "已选模型会出现在聊天页切换器中；默认模型用于新会话。",
+    "modelFetch": {
+      "button": "获取服务商模型",
+      "loading": "获取中",
+      "selectPlaceholder": "从当前服务商返回的 {{count}} 个模型中选择",
+      "empty": "未从当前服务商获取到模型。"
+    },
+    "modelSelection": {
+      "manualLabel": "手动添加模型 ID",
+      "addManual": "添加模型",
+      "selectedLabel": "已启用模型（{{count}}）",
+      "emptySelected": "还没有启用模型。请从服务商列表勾选，或手动添加模型 ID。",
+      "noSelected": "请先启用模型",
+      "defaultBadge": "默认",
+      "removeModel": "移除模型 {{model}}"
+    },
     "defaultReasoningEffort": "默认思考强度",
     "defaultReasoningEffortHint": "用于 Codex 新会话的 model_reasoning_effort。默认 high，可按需切换。",
     "reasoningEffortLevels": {
@@ -185,9 +200,9 @@
         "empty": "请先在步骤 1 选择模式。"
       },
       "model": {
-        "title": "设置默认模型（可选）",
-        "description": "可填写模型 ID，也可从内置建议中选择。",
-        "empty": "请先完成模式选择后再设置默认模型。"
+        "title": "选择可用模型",
+        "description": "启用聊天页可切换的模型，并为新会话选择一个默认模型。",
+        "empty": "请先完成模式选择后再设置模型。"
       }
     }
   },

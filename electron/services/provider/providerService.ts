@@ -23,6 +23,8 @@ import type {
   ProviderSettings,
   ProviderStatus,
   ProviderCredentialInfo,
+  ProviderModelInfo,
+  ProviderModelListResult,
   DataBusEvent,
 } from '@shared/types'
 import type { CodexAuthConfig, ProviderAdapter } from './types'
@@ -35,14 +37,85 @@ import { CustomProvider } from './providers/custom'
 import { createLogger } from '../../platform/logger'
 
 const log = createLogger('ProviderService')
+
+const ANTHROPIC_VERSION = '2023-06-01'
+
 export interface ProviderServiceDeps {
   dispatch: (event: DataBusEvent) => void
   credentialStoreByEngine: Record<AIEngineKind, CredentialStore>
   backgroundCredentialStore: CredentialStore<{ apiKey?: string }>
   /** Returns current provider settings (non-sensitive config). */
   getProviderSettings: () => ProviderSettings
+  /** Returns a proxy-aware fetch implementation for external provider APIs. */
+  getFetch?: () => typeof globalThis.fetch
   /** Bring the app window to the foreground (called after successful auth). */
   focusApp?: () => void
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function buildProviderModelsUrl(baseUrl: string): string {
+  const url = new URL(baseUrl)
+  const pathname = url.pathname.replace(/\/+$/, '')
+
+  if (!pathname || pathname === '/') {
+    url.pathname = '/v1/models'
+  } else if (pathname.endsWith('/models')) {
+    url.pathname = pathname
+  } else if (pathname.endsWith('/v1')) {
+    url.pathname = `${pathname}/models`
+  } else {
+    url.pathname = `${pathname}/v1/models`
+  }
+
+  url.search = ''
+  url.hash = ''
+  return url.toString()
+}
+
+function parseProviderModelResponse(raw: unknown): ProviderModelInfo[] {
+  const items = isRecord(raw) && Array.isArray(raw.data)
+    ? raw.data
+    : Array.isArray(raw)
+      ? raw
+      : []
+
+  const seen = new Set<string>()
+  const models: ProviderModelInfo[] = []
+
+  for (const item of items) {
+    const id = typeof item === 'string'
+      ? item
+      : isRecord(item) && typeof item.id === 'string'
+        ? item.id
+        : ''
+
+    const trimmedId = id.trim()
+    if (!trimmedId || seen.has(trimmedId)) continue
+    seen.add(trimmedId)
+
+    const displayName = isRecord(item)
+      ? [item.display_name, item.displayName, item.name]
+        .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : undefined
+
+    models.push({
+      id: trimmedId,
+      ...(displayName ? { displayName } : {}),
+    })
+  }
+
+  return models
+}
+
+async function readErrorBody(response: Response): Promise<string> {
+  try {
+    return (await response.text()).slice(0, 500)
+  } catch {
+    return ''
+  }
 }
 
 export class ProviderService {
@@ -282,6 +355,58 @@ export class ProviderService {
     return provider.getCredential()
   }
 
+  /**
+   * Fetch model IDs from the currently selected provider's model-list endpoint.
+   *
+   * Claude uses Anthropic-compatible auth against the active provider's /v1/models.
+   * Codex uses OpenAI-compatible auth against the active provider's /v1/models.
+   */
+  async listModels(engineKind: AIEngineKind): Promise<ProviderModelListResult> {
+    const engineSettings = this.getEngineProviderSettings(engineKind)
+    const mode = engineSettings.activeMode
+
+    if (!mode) {
+      throw new Error(`No active provider mode configured for engine "${engineKind}"`)
+    }
+
+    const provider = this.getEngineProviders(engineKind).get(mode)
+    if (!provider) {
+      throw new Error(`No adapter found for provider mode "${mode}"`)
+    }
+
+    if (engineKind === 'codex') {
+      const codexAuth = provider.getCodexAuthConfig
+        ? await provider.getCodexAuthConfig()
+        : null
+      if (!codexAuth?.apiKey) {
+        throw new Error(`Provider mode "${mode}" is not compatible with Codex/OpenAI protocol`)
+      }
+
+      return this.fetchProviderModels({
+        engineKind,
+        mode,
+        protocol: 'openai',
+        apiKey: codexAuth.apiKey,
+        baseUrl: codexAuth.baseUrl ?? 'https://api.openai.com',
+        authStyle: 'bearer',
+      })
+    }
+
+    const httpAuth = await provider.getHTTPAuth()
+    if (!httpAuth?.apiKey) {
+      throw new Error(`Provider mode "${mode}" returned no HTTP auth credentials`)
+    }
+
+    return this.fetchProviderModels({
+      engineKind,
+      mode,
+      protocol: 'anthropic',
+      apiKey: httpAuth.apiKey,
+      baseUrl: httpAuth.baseUrl,
+      authStyle: httpAuth.authStyle,
+    })
+  }
+
   async getBackgroundModelCredential(): Promise<BackgroundModelCredentialInfo | null> {
     const apiKey = await this.deps.backgroundCredentialStore.get('apiKey')
     return apiKey ? { apiKey } : null
@@ -410,6 +535,53 @@ export class ProviderService {
   }
 
   // ── Private ─────────────────────────────────────────────────────────
+
+  private async fetchProviderModels(auth: {
+    engineKind: AIEngineKind
+    mode: ApiProvider
+    protocol: LLMAuthConfig['protocol']
+    apiKey: string
+    baseUrl: string
+    authStyle: LLMAuthConfig['authStyle']
+  }): Promise<ProviderModelListResult> {
+    const sourceUrl = buildProviderModelsUrl(auth.baseUrl)
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    }
+
+    if (auth.protocol === 'anthropic') {
+      headers['anthropic-version'] = ANTHROPIC_VERSION
+      if (auth.authStyle === 'bearer') {
+        headers.Authorization = `Bearer ${auth.apiKey}`
+      } else {
+        headers['x-api-key'] = auth.apiKey
+      }
+    } else {
+      headers.Authorization = `Bearer ${auth.apiKey}`
+    }
+
+    const fetchFn = this.deps.getFetch?.() ?? globalThis.fetch
+    const response = await fetchFn(sourceUrl, {
+      method: 'GET',
+      headers,
+    })
+
+    if (!response.ok) {
+      const body = await readErrorBody(response)
+      throw new Error(
+        `Failed to fetch model list from ${sourceUrl} (HTTP ${response.status})${body ? `: ${body}` : ''}`,
+      )
+    }
+
+    const raw = await response.json()
+    return {
+      engineKind: auth.engineKind,
+      mode: auth.mode,
+      protocol: auth.protocol,
+      sourceUrl,
+      models: parseProviderModelResponse(raw),
+    }
+  }
 
   private broadcastStatus(status: ProviderStatus): void {
     this.deps.dispatch({ type: 'provider:status', payload: status })

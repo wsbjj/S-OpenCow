@@ -17,6 +17,7 @@ import {
   type StartSessionNativeToolAllowItem,
   type StartSessionPolicy,
   type SessionStopReason,
+  type SetSessionModelInput,
   type StartSessionInput,
   type UserMessageContent,
 } from '../../src/shared/types'
@@ -448,6 +449,7 @@ export class SessionOrchestrator {
       pipeline: null,
       policy: null,
       providerMode: null,
+      launchModel: null,
       spawnErrorCount: 0,
       onComplete: input.onComplete,
       completionFired: false,
@@ -588,6 +590,11 @@ export class SessionOrchestrator {
       },
       logger: log,
     })
+    if (rt) {
+      rt.launchModel = typeof options.model === 'string' && options.model.trim()
+        ? options.model.trim()
+        : null
+    }
 
     // ── System prompt layer stack ──
     // Build the layer object now; L3 (session) and L4 (capability) may be
@@ -1008,6 +1015,27 @@ export class SessionOrchestrator {
     return true
   }
 
+  async setSessionModel(sessionId: string, selection: SetSessionModelInput): Promise<boolean> {
+    const engineKind = selection.engineKind
+    if (engineKind !== 'claude' && engineKind !== 'codex') return false
+
+    const rt = this.runtimes.get(sessionId)
+    let session = rt?.session ?? null
+    if (!session) {
+      const persisted = await this.store.get(sessionId)
+      if (!persisted) return false
+      session = ManagedSession.fromInfo(persisted)
+    }
+
+    session.setDesiredModel({
+      engineKind,
+      model: selection.model,
+    })
+    this.dispatchSessionUpdate(session)
+    await this.store.save(session.toPersistenceRecord())
+    return true
+  }
+
   async sendMessage(sessionId: string, content: UserMessageContent): Promise<boolean> {
     const rt = this.runtimes.get(sessionId)
     log.debug('sendMessage entered', {
@@ -1080,7 +1108,19 @@ export class SessionOrchestrator {
         return await this.resumeSessionInternal(sessionId, content, { forceRestart: true })
       }
 
-      // 2. Provider mode drift: SDK subprocess env is frozen at spawn. If the
+      // 2. Session model selection drift: the running lifecycle was spawned
+      //    with a frozen engine/model. If the user changed the conversation
+      //    selector, apply it before the next turn and rebootstrap.
+      if (this.detectAndApplySessionModelSelection(rt)) {
+        log.info('sendMessage: session model selection drift detected, restarting lifecycle', {
+          sessionId,
+          desiredEngineKind: rt.session.getDesiredEngineKind(),
+          desiredModel: rt.session.getModelOverride(),
+        })
+        return await this.resumeSessionInternal(sessionId, content, { forceRestart: true })
+      }
+
+      // 3. Provider mode drift: SDK subprocess env is frozen at spawn. If the
       //    user switched provider mode mid-session, force a lifecycle restart
       //    to pick up fresh credentials.
       const engineKind = rt.session.getEngineKind()
@@ -1095,9 +1135,9 @@ export class SessionOrchestrator {
         return await this.resumeSessionInternal(sessionId, content, { forceRestart: true })
       }
 
-      // 3. Engine kind drift: user switched default engine since this session started.
+      // 4. Engine kind drift: user switched default engine since this session started.
       //    Pattern identical to provider mode drift above.
-      if (this.detectAndApplyEngineDrift(rt.session)) {
+      if (!this.hasSessionModelSelection(rt.session) && this.detectAndApplyEngineDrift(rt.session)) {
         return await this.resumeSessionInternal(sessionId, content, { forceRestart: true })
       }
     }
@@ -1189,8 +1229,17 @@ export class SessionOrchestrator {
     // The fast path pushes messages into the existing lifecycle queue, which
     // would silently bypass engine switching. Detect drift first; if the
     // engine changed, skip the fast path and fall through to full restart.
-    if (existing && !forceRestart && this.detectAndApplyEngineDrift(existing.session)) {
+    if (
+      existing
+      && !forceRestart
+      && !this.hasSessionModelSelection(existing.session)
+      && this.detectAndApplyEngineDrift(existing.session)
+    ) {
       log.info('resumeSessionInternal: engine drift detected, skipping fast path for full restart', { sessionId })
+      forceRestart = true
+    }
+    if (existing && !forceRestart && this.detectAndApplySessionModelSelection(existing)) {
+      log.info('resumeSessionInternal: session model selection drift detected, skipping fast path for full restart', { sessionId })
       forceRestart = true
     }
 
@@ -1219,9 +1268,11 @@ export class SessionOrchestrator {
       session = ManagedSession.fromInfo(persisted)
     }
 
-    // Engine kind drift check — covers persisted sessions restored from store
-    // (no active runtime). Idempotent: no-op if already applied above.
-    const engineSwitched = this.detectAndApplyEngineDrift(session)
+    // Engine/model selection drift check — covers persisted sessions restored
+    // from store (no active runtime). Idempotent: no-op if already applied above.
+    const desiredEngineSwitched = this.applyDesiredEngineSelection(session)
+    const engineSwitched = desiredEngineSwitched
+      || (!this.hasSessionModelSelection(session) && this.detectAndApplyEngineDrift(session))
 
     const engineSessionRef = session.getEngineRef()
     if (!engineSessionRef && !forceRestart && !engineSwitched) {
@@ -1259,6 +1310,7 @@ export class SessionOrchestrator {
       pipeline: null,
       policy: null,
       providerMode: null,
+      launchModel: null,
       spawnErrorCount: existing?.spawnErrorCount ?? 0,
       completionFired: false,
     }
@@ -1276,6 +1328,52 @@ export class SessionOrchestrator {
   }
 
   // ── Engine drift helpers ─────────────────────────────────────────────
+
+  private hasSessionModelSelection(session: ManagedSession): boolean {
+    return session.getDesiredEngineKind() !== null || session.getModelOverride() !== null
+  }
+
+  private applyDesiredEngineSelection(session: ManagedSession): boolean {
+    const desiredEngineKind = session.getDesiredEngineKind()
+    const desiredModel = session.getModelOverride()
+
+    if (desiredEngineKind && desiredEngineKind !== session.getEngineKind()) {
+      const oldEngine = session.getEngineKind()
+      const summary = buildConversationSummary({
+        messages: session.getMessages(),
+        fromEngine: oldEngine,
+      })
+      session.switchEngine({
+        newEngine: desiredEngineKind,
+        contextSummary: summary,
+        originalContext: session.getConfig().contextSystemPrompt,
+      })
+      session.setDesiredModel({ engineKind: desiredEngineKind, model: desiredModel })
+      log.info('session model selection applied engine switch', {
+        sessionId: session.id,
+        from: oldEngine,
+        to: desiredEngineKind,
+        desiredModel,
+      })
+      this.dispatchSessionUpdate(session)
+      this.dispatchLastSystemEvent(session)
+      return true
+    }
+
+    return false
+  }
+
+  private detectAndApplySessionModelSelection(rt: SessionRuntime): boolean {
+    const session = rt.session
+    const desiredModel = session.getModelOverride()
+    let changed = this.applyDesiredEngineSelection(session)
+
+    if (desiredModel && rt.launchModel !== desiredModel) {
+      changed = true
+    }
+
+    return changed
+  }
 
   /**
    * Detect and apply engine kind drift: if the session's engine differs from

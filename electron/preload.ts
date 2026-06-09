@@ -75,6 +75,7 @@ const invokeChannels: (keyof IPCChannels)[] = [
   // Command Phase
   'command:start-session',
   'command:send-message',
+  'command:set-session-model',
   'command:answer-question',
   'command:stop-session',
   'command:resume-session',
@@ -88,6 +89,7 @@ const invokeChannels: (keyof IPCChannels)[] = [
   'provider:cancel-login',
   'provider:logout',
   'provider:get-credential',
+  'provider:list-models',
   'background-model:get-credential',
   'background-model:set-credential',
   'background-model:clear-credential',

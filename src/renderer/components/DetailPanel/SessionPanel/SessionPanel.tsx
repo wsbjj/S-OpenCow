@@ -31,13 +31,19 @@ import { useElementInset } from '@/hooks/useElementInset'
 import { useMessageQueue } from '../../../hooks/useMessageQueue'
 import { useAppStore, selectProjectId } from '@/stores/appStore'
 import { useCommandStore, selectIsProcessing } from '@/stores/commandStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useIssueStore } from '@/stores/issueStore'
 import { useNoteStore } from '@/stores/noteStore'
 import { useSessionByBinding, type SessionBinding } from '@/hooks/useSessionForIssue'
 import { cn } from '@/lib/utils'
 import { SessionStarProvider } from './FileStarButton'
+import {
+  buildChatModelOptions,
+  resolveSessionChatModelSelection,
+} from '@/lib/chatModelOptions'
 import type {
   ManagedSessionMessage,
+  SetSessionModelInput,
   UserMessageContent,
   NoteContent,
 } from '@shared/types'
@@ -181,6 +187,8 @@ export const SessionPanel = React.memo(function SessionPanel({
   // entire IssueDetailView tree above it.
   const session = useSessionByBinding(binding)
   const issueId = binding.kind === 'issue' ? binding.issueId : undefined
+  const settings = useSettingsStore((s) => s.settings)
+  const setSessionModel = useCommandStore((s) => s.setSessionModel)
 
   // ---------------------------------------------------------------------------
   // ALL hooks must be declared before any early return to satisfy Rules of Hooks.
@@ -462,6 +470,28 @@ export const SessionPanel = React.memo(function SessionPanel({
     [isProcessing, handleStop],
   )
 
+  const modelOptions = useMemo(() => buildChatModelOptions(settings), [settings])
+  const sessionModelSelectionValue = useMemo(
+    () => (session ? resolveSessionChatModelSelection(session, settings, modelOptions) : null),
+    [modelOptions, session, settings],
+  )
+  const handleSessionModelChange = useCallback(
+    (selection: SetSessionModelInput) => {
+      if (!session?.id) return
+      void setSessionModel(session.id, selection)
+    },
+    [session?.id, setSessionModel],
+  )
+  const inputModelSelection = useMemo(() => {
+    if (!session || modelOptions.length === 0) return undefined
+    return {
+      value: sessionModelSelectionValue,
+      options: modelOptions,
+      onChange: handleSessionModelChange,
+      disabled: isReadOnly || !!history?.isViewingArchived,
+    }
+  }, [handleSessionModelChange, history?.isViewingArchived, isReadOnly, modelOptions, session, sessionModelSelectionValue])
+
   // ---------------------------------------------------------------------------
   // Early returns — safe now that all hooks have been called above.
   // ---------------------------------------------------------------------------
@@ -692,9 +722,10 @@ export const SessionPanel = React.memo(function SessionPanel({
                       onSend={handleSendOrQueue}
                       disabled={false}
                       placeholder={isResumeState ? t('agentChat.continueConversation') : undefined}
-                      engineKind={session?.engineKind}
+                      engineKind={inputModelSelection?.value?.engineKind ?? session?.engineKind}
                       cacheKey={issueId}
                       sessionControl={sessionControlProps}
+                      modelSelection={inputModelSelection}
                     />
                   )}
                 </div>

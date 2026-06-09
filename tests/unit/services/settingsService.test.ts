@@ -166,6 +166,85 @@ describe('SettingsService', () => {
     expect(provider.byEngine.codex.defaultReasoningEffort).toBe('high')
   })
 
+  it('migrates legacy defaultModel into mode-scoped selected models', async () => {
+    await writeFile(
+      join(tempDir, 'settings.json'),
+      JSON.stringify({
+        provider: {
+          activeMode: 'api_key',
+          defaultModel: ' claude-sonnet-4-6 ',
+        },
+      }),
+      'utf-8'
+    )
+    const fresh = new SettingsService(join(tempDir, 'settings.json'))
+    const settings = await fresh.load()
+
+    expect(settings.provider.byEngine.claude.defaultModel).toBe('claude-sonnet-4-6')
+    expect(settings.provider.byEngine.claude.modelSelectionsByMode?.api_key).toEqual({
+      selectedModels: [{ id: 'claude-sonnet-4-6', source: 'legacy' }],
+      defaultModel: 'claude-sonnet-4-6',
+    })
+  })
+
+  it('normalizes model selections by provider mode and keeps engines isolated', async () => {
+    await writeFile(
+      join(tempDir, 'settings.json'),
+      JSON.stringify({
+        provider: {
+          byEngine: {
+            claude: {
+              activeMode: 'custom',
+              defaultModel: 'claude-a',
+              modelSelectionsByMode: {
+                custom: {
+                  selectedModels: [
+                    { id: ' claude-a ', displayName: 'Claude A', source: 'provider' },
+                    { id: 'claude-a', source: 'manual' },
+                    { id: '', source: 'provider' },
+                    { id: 'claude-b', source: 'unexpected' },
+                  ],
+                  defaultModel: ' claude-b ',
+                  sourceUrl: 'https://claude-gateway.example/v1/models',
+                  lastFetchedAt: 123,
+                },
+              },
+            },
+            codex: {
+              activeMode: 'openrouter',
+              defaultReasoningEffort: 'xhigh',
+              modelSelectionsByMode: {
+                openrouter: {
+                  selectedModels: [
+                    { id: 'openai/gpt-5', displayName: 'GPT-5', source: 'provider' },
+                  ],
+                  defaultModel: 'openai/gpt-5',
+                },
+              },
+            },
+          },
+        },
+      }),
+      'utf-8'
+    )
+    const fresh = new SettingsService(join(tempDir, 'settings.json'))
+    const settings = await fresh.load()
+
+    expect(settings.provider.byEngine.claude.modelSelectionsByMode?.custom).toEqual({
+      selectedModels: [
+        { id: 'claude-a', displayName: 'Claude A', source: 'provider' },
+        { id: 'claude-b', source: 'manual' },
+      ],
+      defaultModel: 'claude-b',
+      sourceUrl: 'https://claude-gateway.example/v1/models',
+      lastFetchedAt: 123,
+    })
+    expect(settings.provider.byEngine.codex.modelSelectionsByMode?.openrouter?.selectedModels).toEqual([
+      { id: 'openai/gpt-5', displayName: 'GPT-5', source: 'provider' },
+    ])
+    expect(settings.provider.byEngine.codex.defaultReasoningEffort).toBe('xhigh')
+  })
+
   it('drops invalid codex defaultReasoningEffort while keeping valid values', async () => {
     await writeFile(
       join(tempDir, 'settings.json'),

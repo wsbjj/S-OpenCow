@@ -721,4 +721,23 @@ describe('ManagedSession', () => {
     expect(restored.getModelOverride()).toBeNull()
     expect(restored.getConfig().model).toBeUndefined()
   })
+
+  it('persists desired session model separately from runtime observed model', () => {
+    const session = new ManagedSession({
+      ...baseConfig,
+      engineKind: 'claude',
+    })
+    session.setModel('claude-sonnet-4-6')
+    session.setDesiredModel({ engineKind: 'codex', model: 'gpt-5-codex' })
+
+    const info = session.getInfo()
+    expect(info.model).toBe('claude-sonnet-4-6')
+    expect(info.desiredEngineKind).toBe('codex')
+    expect(info.desiredModel).toBe('gpt-5-codex')
+
+    const restored = ManagedSession.fromInfo(info)
+    expect(restored.getModel()).toBe('claude-sonnet-4-6')
+    expect(restored.getDesiredEngineKind()).toBe('codex')
+    expect(restored.getModelOverride()).toBe('gpt-5-codex')
+  })
 })

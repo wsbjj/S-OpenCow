@@ -109,7 +109,22 @@
     "customAuthStyleHint_bearer": "Key is sent as Authorization: Bearer (OpenRouter-style).",
     "defaultModel": "Default Model",
     "defaultModelPlaceholder": "Select or type a model ID",
-    "defaultModelHint": "Override the default model for all new sessions. Leave blank to use the provider's default.",
+    "defaultModelHint": "Enabled models appear in the chat model switcher; the default model is used for new sessions.",
+    "modelFetch": {
+      "button": "Fetch Provider Models",
+      "loading": "Fetching",
+      "selectPlaceholder": "Choose from {{count}} models returned by the current provider",
+      "empty": "No models were returned by the current provider."
+    },
+    "modelSelection": {
+      "manualLabel": "Add model ID manually",
+      "addManual": "Add model",
+      "selectedLabel": "Enabled models ({{count}})",
+      "emptySelected": "No models are enabled yet. Select from the provider list or add a model ID manually.",
+      "noSelected": "Enable a model first",
+      "defaultBadge": "Default",
+      "removeModel": "Remove model {{model}}"
+    },
     "defaultReasoningEffort": "Default Reasoning Effort",
     "defaultReasoningEffortHint": "Applied as Codex model_reasoning_effort for new sessions. Defaults to high; switch when needed.",
     "reasoningEffortLevels": {
@@ -185,9 +200,9 @@
         "empty": "Choose a mode in Step 1 first."
       },
       "model": {
-        "title": "Set Default Model (Optional)",
-        "description": "Type a model ID or choose from built-in suggestions.",
-        "empty": "Select a mode before setting a default model."
+        "title": "Choose Available Models",
+        "description": "Enable models for the chat switcher and choose the default model for new sessions.",
+        "empty": "Select a mode before setting models."
       }
     }
   },

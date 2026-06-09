@@ -11,6 +11,7 @@ import { ContextMentionPopover } from './ContextMentionPopover'
 import { AttachmentPreviewList } from '../../ui/AttachmentPreviewList'
 import { StopButtonPopover } from '../../ui/StopButtonPopover'
 import type { SessionControlProps } from '../../ui/StopButtonPopover'
+import { ModelSwitcher, type ModelSwitcherProps } from '../../ui/ModelSwitcher'
 import { registerSessionInputFocus, unregisterSessionInputFocus } from '../../../hooks/useSlashFocusShortcut'
 import { useProjectScope } from '@/contexts/ProjectScopeContext'
 import { useContextFilesEditorSync } from '@/hooks/useContextFilesEditorSync'
@@ -29,6 +30,8 @@ interface SessionInputBarProps {
   cacheKey?: string
   /** When provided, the send button transforms to a stop action during active processing */
   sessionControl?: SessionControlProps
+  /** Optional session/new-chat model switcher state. */
+  modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
 }
 
 /** Imperative handle exposed to parent components via ref. */
@@ -43,7 +46,7 @@ export interface SessionInputBarHandle {
  * SessionInputBar's props (onSend, disabled, placeholder, etc.) only change
  * at state transitions (idle → streaming, streaming → idle), NOT on every chunk.
  */
-export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInputBarProps>(function SessionInputBar({ onSend, disabled, placeholder, engineKind, cacheKey, sessionControl }: SessionInputBarProps, ref): React.JSX.Element {
+export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInputBarProps>(function SessionInputBar({ onSend, disabled, placeholder, engineKind, cacheKey, sessionControl, modelSelection }: SessionInputBarProps, ref): React.JSX.Element {
   const { t } = useTranslation('sessions')
   const { t: tCommon } = useTranslation('common')
   const { projectPath } = useProjectScope()
@@ -230,6 +233,17 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
               </div>
             )}
           </div>
+        )}
+
+        {modelSelection && (
+          <ModelSwitcher
+            value={modelSelection.value}
+            options={modelSelection.options}
+            onChange={modelSelection.onChange}
+            disabled={modelSelection.disabled}
+            size="sm"
+            className="shrink-0"
+          />
         )}
 
         {/* TipTap plain-text editor with slash command support */}

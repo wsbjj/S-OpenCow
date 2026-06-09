@@ -87,21 +87,6 @@ export function getModeLabelKey(
   return MODE_LABEL_KEY_BY_ENGINE[engineKind][mode] ?? null
 }
 
-export const MODEL_SUGGESTIONS_BY_ENGINE: Record<AIEngineKind, ReadonlyArray<string>> = {
-  claude: [
-    'claude-opus-4-6',
-    'claude-sonnet-4-6',
-    'claude-haiku-4-5-20251001',
-  ],
-  codex: [
-    'gpt-5.3-codex',
-    'gpt-5.2-codex',
-    'gpt-5.1-codex-max',
-    'gpt-5-codex',
-    'codex-mini-latest',
-  ],
-}
-
 export const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
   value: CodexReasoningEffort
   labelKey: string

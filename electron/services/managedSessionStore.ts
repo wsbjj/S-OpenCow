@@ -47,6 +47,8 @@ export class ManagedSessionStore {
           origin_extra: row.origin_extra,
           project_path: row.project_path,
           project_id: row.project_id,
+          desired_engine_kind: row.desired_engine_kind,
+          desired_model: row.desired_model,
           model: row.model,
           messages: row.messages,
           created_at: row.created_at,

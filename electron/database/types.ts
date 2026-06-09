@@ -105,6 +105,10 @@ export interface ManagedSessionTable {
   project_path: string | null
   /** Resolved Project ID — domain-level link to the owning project. Added in migration 020. */
   project_id: string | null
+  /** Session-level desired engine for the next turn. Added in migration 053. */
+  desired_engine_kind: string | null
+  /** Session-level desired model for the next turn. Added in migration 053. */
+  desired_model: string | null
   model: string | null
   messages: string // JSON array: ManagedSessionMessage[]
   created_at: number

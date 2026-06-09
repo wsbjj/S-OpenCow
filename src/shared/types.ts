@@ -562,6 +562,10 @@ export interface IPCChannels {
     args: [sessionId: string, content: UserMessageContent]
     return: boolean
   }
+  'command:set-session-model': {
+    args: [sessionId: string, selection: SetSessionModelInput]
+    return: boolean
+  }
   'command:stop-session': { args: [sessionId: string]; return: boolean }
   'command:resume-session': {
     args: [sessionId: string, content?: UserMessageContent]
@@ -589,6 +593,10 @@ export interface IPCChannels {
   'provider:get-credential': {
     args: [engineKind: AIEngineKind, mode: ApiProvider]
     return: ProviderCredentialInfo | null
+  }
+  'provider:list-models': {
+    args: [engineKind: AIEngineKind]
+    return: ProviderModelListResult
   }
   'background-model:get-credential': { args: []; return: BackgroundModelCredentialInfo | null }
   'background-model:set-credential': {
@@ -3252,6 +3260,11 @@ export interface SessionSnapshot {
   projectPath: string | null
   /** Resolved Project ID — null when session is not scoped to a project. */
   projectId: string | null
+  /** Session-level desired engine selected by the user for the next turn. */
+  desiredEngineKind?: AIEngineKind | null
+  /** Session-level desired model selected by the user for the next lifecycle spawn. */
+  desiredModel?: string | null
+  /** Runtime-observed model reported by the engine. */
   model: string | null
   createdAt: number
   lastActivity: number
@@ -3342,6 +3355,11 @@ export interface StartSessionInput {
    * Can also be set explicitly to inject custom context for any session origin.
    */
   contextSystemPrompt?: string
+}
+
+export interface SetSessionModelInput {
+  engineKind: AIEngineKind
+  model?: string
 }
 
 // === Settings ===
@@ -3647,6 +3665,32 @@ export interface ProviderCredentialInfo {
   authStyle?: 'api_key' | 'bearer'
 }
 
+export interface ProviderModelInfo {
+  id: string
+  displayName?: string
+}
+
+export interface ProviderModelChoice {
+  id: string
+  displayName?: string
+  source?: 'provider' | 'manual' | 'legacy'
+}
+
+export interface ProviderModeModelSettings {
+  selectedModels: ProviderModelChoice[]
+  defaultModel?: string
+  sourceUrl?: string
+  lastFetchedAt?: number
+}
+
+export interface ProviderModelListResult {
+  engineKind: AIEngineKind
+  mode: ApiProvider
+  protocol: BackgroundModelProtocol
+  sourceUrl: string
+  models: ProviderModelInfo[]
+}
+
 export type ProviderStatusState = 'authenticated' | 'unauthenticated' | 'authenticating' | 'error'
 
 export interface ProviderStatus {
@@ -3665,6 +3709,8 @@ export interface ProviderEngineSettings {
   activeMode: ApiProvider | null
   /** Optional per-engine default model hint. */
   defaultModel?: string
+  /** User-selected models available in chat, isolated by provider mode. */
+  modelSelectionsByMode?: Partial<Record<ApiProvider, ProviderModeModelSettings>>
   /** Optional default reasoning effort for Codex model calls. */
   defaultReasoningEffort?: CodexReasoningEffort
 }

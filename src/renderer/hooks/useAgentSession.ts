@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useAppStore } from '@/stores/appStore'
 import { useCommandStore } from '@/stores/commandStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useSessionBase } from '@/hooks/useSessionBase'
 import type { UseMessageQueueReturn } from '@/hooks/useMessageQueue'
-import type { SessionSnapshot, ManagedSessionState, UserMessageContent } from '@shared/types'
+import {
+  buildChatModelOptions,
+  hasChatModelOption,
+  resolveDefaultChatModelSelection,
+  resolveSessionChatModelSelection,
+  type ChatModelOption,
+} from '@/lib/chatModelOptions'
+import type { SessionSnapshot, ManagedSessionState, SetSessionModelInput, UserMessageContent } from '@shared/types'
 
 /**
  * Session origin sources eligible for the [Chat] tab.
@@ -54,6 +62,13 @@ export interface AgentSessionHandle {
   stop: () => void
   /** Message queue handle for queue UI display. */
   messageQueue: UseMessageQueueReturn
+  /** Model options/selection for empty and active chat inputs. */
+  modelSelection: {
+    value: SetSessionModelInput | null
+    options: ChatModelOption[]
+    onChange: (selection: SetSessionModelInput) => void
+    disabled?: boolean
+  } | null
 
   // ── Session navigation ────────────────────────────────────────
 
@@ -102,6 +117,8 @@ function sessionListEqual(a: SessionSnapshot[], b: SessionSnapshot[]): boolean {
 export function useAgentSession(): AgentSessionHandle {
   const chatSessionId = useAppStore((s) => s.agentChatSessionId)
   const setChatSessionId = useAppStore((s) => s.setAgentChatSessionId)
+  const settings = useSettingsStore((s) => s.settings)
+  const setSessionModel = useCommandStore((s) => s.setSessionModel)
 
   const clearSessionId = useCallback(() => setChatSessionId(null), [setChatSessionId])
 
@@ -133,6 +150,47 @@ export function useAgentSession(): AgentSessionHandle {
     [setChatSessionId]
   )
 
+  // ── Model selection ───────────────────────────────────────────
+
+  const modelOptions = useMemo(() => buildChatModelOptions(settings), [settings])
+  const defaultModelSelection = useMemo(
+    () => resolveDefaultChatModelSelection(settings, modelOptions),
+    [settings, modelOptions],
+  )
+  const [pendingModelSelection, setPendingModelSelection] = useState<SetSessionModelInput | null>(null)
+
+  const effectiveNewModelSelection = useMemo(() => {
+    if (hasChatModelOption(modelOptions, pendingModelSelection)) return pendingModelSelection
+    return defaultModelSelection
+  }, [defaultModelSelection, modelOptions, pendingModelSelection])
+
+  const currentModelSelection = useMemo(() => {
+    if (base.session) return resolveSessionChatModelSelection(base.session, settings, modelOptions)
+    return effectiveNewModelSelection
+  }, [base.session, effectiveNewModelSelection, modelOptions, settings])
+
+  const currentSessionId = base.session?.id ?? null
+  const handleModelSelectionChange = useCallback(
+    (selection: SetSessionModelInput) => {
+      if (currentSessionId) {
+        void setSessionModel(currentSessionId, selection)
+        return
+      }
+      setPendingModelSelection(selection)
+    },
+    [currentSessionId, setSessionModel],
+  )
+
+  const modelSelection = useMemo<AgentSessionHandle['modelSelection']>(() => {
+    if (modelOptions.length === 0) return null
+    return {
+      value: currentModelSelection,
+      options: modelOptions,
+      onChange: handleModelSelectionChange,
+      disabled: base.isStarting,
+    }
+  }, [base.isStarting, currentModelSelection, handleModelSelectionChange, modelOptions])
+
   // ── Start new session ─────────────────────────────────────────
 
   const handleStartChat = useCallback(
@@ -143,6 +201,8 @@ export function useAgentSession(): AgentSessionHandle {
         const sessionId = await base.startSession({
           prompt: message,
           workspace: base.startWorkspace,
+          ...(effectiveNewModelSelection ? { engineKind: effectiveNewModelSelection.engineKind } : {}),
+          ...(effectiveNewModelSelection?.model ? { model: effectiveNewModelSelection.model } : {}),
         })
         if (sessionId) {
           setChatSessionId(sessionId)
@@ -155,7 +215,7 @@ export function useAgentSession(): AgentSessionHandle {
         base.setIsStarting(false)
       }
     },
-    [base, setChatSessionId]
+    [base, effectiveNewModelSelection, setChatSessionId]
   )
 
   // ── Unified send/queue (with start) ───────────────────────────
@@ -182,6 +242,7 @@ export function useAgentSession(): AgentSessionHandle {
     sendOrQueue,
     stop: base.handleStop,
     messageQueue: base.messageQueue,
+    modelSelection,
     sessions,
     selectSession
   }

@@ -255,7 +255,7 @@ function ChatPanelBody({ agent }: { agent: AgentSessionHandle }): React.JSX.Elem
 
   // Empty state: no session and not starting
   if (!agent.session && !agent.isStarting) {
-    return <ChatPanelEmpty onSend={agent.sendOrQueue} />
+    return <ChatPanelEmpty onSend={agent.sendOrQueue} modelSelection={agent.modelSelection} />
   }
 
   // Loading state: session is being created
@@ -276,9 +276,11 @@ function ChatPanelBody({ agent }: { agent: AgentSessionHandle }): React.JSX.Elem
 // ── Empty State ─────────────────────────────────────────────────────
 
 function ChatPanelEmpty({
-  onSend
+  onSend,
+  modelSelection,
 }: {
   onSend: (message: UserMessageContent) => Promise<boolean>
+  modelSelection: AgentSessionHandle['modelSelection']
 }): React.JSX.Element {
   const { t } = useTranslation('sessions')
   return (
@@ -296,7 +298,12 @@ function ChatPanelEmpty({
 
       {/* Input at the bottom */}
       <div className="px-3 pb-3 pt-1 shrink-0">
-        <ChatHeroInput onSend={onSend} registerAsChatTabInput />
+        <ChatHeroInput
+          onSend={onSend}
+          engineKind={modelSelection?.value?.engineKind}
+          modelSelection={modelSelection ?? undefined}
+          registerAsChatTabInput
+        />
       </div>
     </div>
   )
@@ -320,6 +327,7 @@ function ChatPanelActive({ agent }: { agent: AgentSessionHandle }): React.JSX.El
       controlsMaxW={null}
       controlsClassName="px-3"
       pausedPlaceholder={t('agentChat.continueConversation')}
+      modelSelection={agent.modelSelection ?? undefined}
       registerAsChatTabInput
     />
   )

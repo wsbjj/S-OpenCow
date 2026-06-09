@@ -20,6 +20,8 @@ import {
   type BackgroundModelMode,
   type BackgroundModelProtocol,
   type BackgroundModelAuthStyle,
+  type ProviderModelChoice,
+  type ProviderModeModelSettings,
   type ProviderEngineSettings,
   type ProviderSettings,
   type CodexReasoningEffort,
@@ -433,6 +435,8 @@ const VALID_BACKGROUND_MODEL_PROTOCOLS: ReadonlySet<BackgroundModelProtocol> =
   new Set(['openai', 'anthropic'])
 const VALID_BACKGROUND_MODEL_AUTH_STYLES: ReadonlySet<BackgroundModelAuthStyle> =
   new Set(['x-api-key', 'bearer'])
+const VALID_PROVIDER_MODEL_SOURCES: ReadonlySet<NonNullable<ProviderModelChoice['source']>> =
+  new Set(['provider', 'manual', 'legacy'])
 
 function normalizeProviderMode(raw: unknown): ProviderSettings['byEngine']['claude']['activeMode'] {
   if (typeof raw !== 'string') return null
@@ -484,10 +488,99 @@ function pickLegacyDefaultModel(raw: Record<string, unknown> | undefined, legacy
   const legacyCustomModel = (raw?.custom as Record<string, unknown> | undefined)?.defaultModel
   const legacyOpenRouterModel = (raw?.openrouter as Record<string, unknown> | undefined)?.defaultModel
   const topLevelDefaultModel = raw?.defaultModel
-  return (typeof topLevelDefaultModel === 'string' && topLevelDefaultModel)
+  const candidate = (typeof topLevelDefaultModel === 'string' && topLevelDefaultModel)
     || legacyCommandModel
     || (typeof legacyCustomModel === 'string' ? legacyCustomModel : undefined)
     || (typeof legacyOpenRouterModel === 'string' ? legacyOpenRouterModel : undefined)
+  const trimmed = typeof candidate === 'string' ? candidate.trim() : ''
+  return trimmed || undefined
+}
+
+function normalizeProviderModelChoice(raw: unknown): ProviderModelChoice | null {
+  if (typeof raw === 'string') {
+    const id = raw.trim()
+    return id ? { id, source: 'manual' } : null
+  }
+
+  const r = (raw ?? {}) as Record<string, unknown>
+  const id = typeof r.id === 'string' ? r.id.trim() : ''
+  if (!id) return null
+
+  const displayName = typeof r.displayName === 'string' && r.displayName.trim()
+    ? r.displayName.trim()
+    : undefined
+  const source = typeof r.source === 'string' && VALID_PROVIDER_MODEL_SOURCES.has(r.source as NonNullable<ProviderModelChoice['source']>)
+    ? r.source as NonNullable<ProviderModelChoice['source']>
+    : 'manual'
+
+  return {
+    id,
+    ...(displayName ? { displayName } : {}),
+    source,
+  }
+}
+
+function normalizeProviderModeModelSettings(raw: unknown): ProviderModeModelSettings | undefined {
+  const r = (raw ?? {}) as Record<string, unknown>
+  const seen = new Set<string>()
+  const selectedModels: ProviderModelChoice[] = []
+
+  if (Array.isArray(r.selectedModels)) {
+    for (const rawModel of r.selectedModels) {
+      const model = normalizeProviderModelChoice(rawModel)
+      if (!model || seen.has(model.id)) continue
+      seen.add(model.id)
+      selectedModels.push(model)
+    }
+  }
+
+  const defaultModel = typeof r.defaultModel === 'string' && r.defaultModel.trim()
+    ? r.defaultModel.trim()
+    : undefined
+
+  if (defaultModel && !seen.has(defaultModel)) {
+    selectedModels.push({ id: defaultModel, source: 'manual' })
+    seen.add(defaultModel)
+  }
+
+  if (selectedModels.length === 0 && !defaultModel) return undefined
+
+  const sourceUrl = typeof r.sourceUrl === 'string' && r.sourceUrl.trim()
+    ? r.sourceUrl.trim()
+    : undefined
+  const lastFetchedAt = typeof r.lastFetchedAt === 'number' && Number.isFinite(r.lastFetchedAt) && r.lastFetchedAt >= 0
+    ? Math.trunc(r.lastFetchedAt)
+    : undefined
+
+  return {
+    selectedModels,
+    ...(defaultModel ? { defaultModel } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(lastFetchedAt !== undefined ? { lastFetchedAt } : {}),
+  }
+}
+
+function normalizeModelSelectionsByMode(
+  raw: unknown,
+  activeMode: ProviderEngineSettings['activeMode'],
+  defaultModel: string | undefined,
+): ProviderEngineSettings['modelSelectionsByMode'] {
+  const r = (raw ?? {}) as Record<string, unknown>
+  const result: ProviderEngineSettings['modelSelectionsByMode'] = {}
+
+  for (const mode of VALID_PROVIDER_MODES) {
+    const normalized = normalizeProviderModeModelSettings(r[mode])
+    if (normalized) result[mode as keyof NonNullable<ProviderEngineSettings['modelSelectionsByMode']>] = normalized
+  }
+
+  if (activeMode && defaultModel && !result[activeMode]) {
+    result[activeMode] = {
+      selectedModels: [{ id: defaultModel, source: 'legacy' }],
+      defaultModel,
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 function normalizeEngineProviderSettings(
@@ -497,15 +590,28 @@ function normalizeEngineProviderSettings(
   const r = (raw ?? {}) as Record<string, unknown>
   const hasActiveMode = Object.prototype.hasOwnProperty.call(r, 'activeMode')
   const hasDefaultModel = Object.prototype.hasOwnProperty.call(r, 'defaultModel')
+  const hasModelSelectionsByMode = Object.prototype.hasOwnProperty.call(r, 'modelSelectionsByMode')
   const hasDefaultReasoningEffort = Object.prototype.hasOwnProperty.call(r, 'defaultReasoningEffort')
   const activeMode = normalizeProviderMode(r.activeMode)
-  const defaultModel = typeof r.defaultModel === 'string' && r.defaultModel ? r.defaultModel : undefined
+  const defaultModel = typeof r.defaultModel === 'string' && r.defaultModel.trim() ? r.defaultModel.trim() : undefined
   const defaultReasoningEffort = normalizeCodexReasoningEffort(r.defaultReasoningEffort)
+  const effectiveActiveMode = hasActiveMode ? activeMode : fallback.activeMode
+  const fallbackDefaultModel = fallback.defaultModel?.trim() || undefined
+  const baseDefaultModel = hasDefaultModel ? defaultModel : fallbackDefaultModel
+  const modelSelectionsByMode = normalizeModelSelectionsByMode(
+    hasModelSelectionsByMode ? r.modelSelectionsByMode : fallback.modelSelectionsByMode,
+    effectiveActiveMode,
+    baseDefaultModel,
+  )
+  const modeDefaultModel = effectiveActiveMode
+    ? modelSelectionsByMode?.[effectiveActiveMode]?.defaultModel
+    : undefined
+  const effectiveDefaultModel = modeDefaultModel ?? baseDefaultModel
+
   return {
-    activeMode: hasActiveMode ? activeMode : fallback.activeMode,
-    ...(hasDefaultModel
-      ? (defaultModel ? { defaultModel } : {})
-      : (fallback.defaultModel ? { defaultModel: fallback.defaultModel } : {})),
+    activeMode: effectiveActiveMode,
+    ...(effectiveDefaultModel ? { defaultModel: effectiveDefaultModel } : {}),
+    ...(modelSelectionsByMode ? { modelSelectionsByMode } : {}),
     ...(hasDefaultReasoningEffort
       ? (defaultReasoningEffort ? { defaultReasoningEffort } : {})
       : (fallback.defaultReasoningEffort ? { defaultReasoningEffort: fallback.defaultReasoningEffort } : {})),

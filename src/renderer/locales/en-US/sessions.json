@@ -229,6 +229,14 @@
     "inputAria": "Start a conversation with Claude Code agent",
     "sendAria": "Send message"
   },
+  "modelSwitcher": {
+    "aria": "Switch model",
+    "fallback": "Model",
+    "engines": {
+      "claude": "Claude",
+      "codex": "Codex"
+    }
+  },
   "sessionPanel": {
     "noSessionYet": "No Session Yet",
     "startSession": "Start Session",

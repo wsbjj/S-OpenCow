@@ -11,6 +11,7 @@ import { ContextMentionPopover } from '@/components/DetailPanel/SessionPanel/Con
 import { AttachmentPreviewList } from '@/components/ui/AttachmentPreviewList'
 import { StopButtonPopover } from '@/components/ui/StopButtonPopover'
 import type { SessionControlProps } from '@/components/ui/StopButtonPopover'
+import { ModelSwitcher, type ModelSwitcherProps } from '@/components/ui/ModelSwitcher'
 import { FILE_INPUT_ACCEPT } from '@/lib/attachmentUtils'
 import { registerChatInputFocus, unregisterChatInputFocus } from '@/lib/chatInputRegistry'
 import { cn } from '@/lib/utils'
@@ -24,6 +25,8 @@ interface ChatHeroInputProps {
   engineKind?: AIEngineKind
   /** When provided, the send button transforms to a stop action during active processing */
   sessionControl?: SessionControlProps
+  /** Optional session/new-chat model switcher state. */
+  modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
   /** Registers this instance as the Chat tab's active focus target. */
   registerAsChatTabInput?: boolean
 }
@@ -45,6 +48,7 @@ export function ChatHeroInput({
   placeholder,
   engineKind,
   sessionControl,
+  modelSelection,
   registerAsChatTabInput = false,
 }: ChatHeroInputProps): React.JSX.Element {
   const { t } = useTranslation('sessions')
@@ -203,6 +207,16 @@ export function ChatHeroInput({
         </div>
 
         {/* Right: send / stop button — dual-mode based on session processing state */}
+        {modelSelection && (
+          <ModelSwitcher
+            value={modelSelection.value}
+            options={modelSelection.options}
+            onChange={modelSelection.onChange}
+            disabled={modelSelection.disabled}
+            size="md"
+            className="ml-auto mr-1 min-w-0"
+          />
+        )}
         {sessionControl?.isProcessing ? (
           <StopButtonPopover onStop={sessionControl.onStop} size="md" />
         ) : (

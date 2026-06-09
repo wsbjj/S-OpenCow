@@ -42,4 +42,12 @@ describe('preload invoke channels', () => {
     expect(api['background-model:set-credential']).toBeTypeOf('function')
     expect(api['background-model:clear-credential']).toBeTypeOf('function')
   })
+
+  it('exposes provider model listing and session model selection channels', async () => {
+    await import('../../../electron/preload')
+
+    const api = electronMock.exposed[APP_WINDOW_KEY] as Record<string, unknown>
+    expect(api['provider:list-models']).toBeTypeOf('function')
+    expect(api['command:set-session-model']).toBeTypeOf('function')
+  })
 })

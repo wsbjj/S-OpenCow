@@ -25,6 +25,7 @@ import { ChatHeroInput } from './ChatHeroInput'
 import { cn } from '@/lib/utils'
 import type { SessionSnapshot, UserMessageContent } from '@shared/types'
 import type { UseMessageQueueReturn } from '@/hooks/useMessageQueue'
+import type { ModelSwitcherProps } from '@/components/ui/ModelSwitcher'
 import { useCommandStore, selectLatestOpenTodos } from '@/stores/commandStore'
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -51,6 +52,8 @@ export interface SessionChatLayoutProps {
   pausedPlaceholder?: string
   /** Optional className for the bottom controls container. */
   controlsClassName?: string
+  /** Optional model switcher state for the input action row. */
+  modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
   /**
    * Optional node rendered inline after all messages, scrolling with the list.
    * Passed through to SessionMessageList's footerNode prop.
@@ -80,6 +83,7 @@ export function SessionChatLayout({
   controlsMaxW = 'max-w-[640px]',
   pausedPlaceholder,
   controlsClassName,
+  modelSelection,
   footerNode,
   hideContentViewer,
   registerAsChatTabInput = false,
@@ -147,8 +151,9 @@ export function SessionChatLayout({
             <ChatHeroInput
               onSend={onSendOrQueue}
               placeholder={isPaused ? pausedPlaceholder : undefined}
-              engineKind={session.engineKind}
+              engineKind={modelSelection?.value?.engineKind ?? session.engineKind}
               sessionControl={{ isProcessing, onStop }}
+              modelSelection={modelSelection}
               registerAsChatTabInput={registerAsChatTabInput}
             />
           </div>

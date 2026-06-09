@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Plus, RefreshCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -16,13 +16,15 @@ import type {
   BackgroundModelSettings,
   CodexReasoningEffort,
   ProviderCredentialInfo,
+  ProviderModelChoice,
+  ProviderModelInfo,
+  ProviderModelListResult,
   ProviderStatus,
 } from '@shared/types'
 import {
   CODEX_REASONING_EFFORT_OPTIONS,
   ENGINE_TABS,
   getModeLabelKey,
-  MODEL_SUGGESTIONS_BY_ENGINE,
   PROVIDER_MODES_BY_ENGINE,
 } from './provider/constants'
 import { DefaultEngineSelect } from './provider/DefaultEngineSelect'
@@ -97,6 +99,94 @@ function buildBackgroundModelSettings(
     ...(baseUrl ? { baseUrl } : {}),
     ...(model ? { model } : {}),
     ...(protocol === 'anthropic' ? { authStyle: next.authStyle ?? 'x-api-key' } : {}),
+  }
+}
+
+function modelChoiceFromInfo(model: ProviderModelInfo, source: ProviderModelChoice['source'] = 'provider'): ProviderModelChoice {
+  return {
+    id: model.id,
+    ...(model.displayName ? { displayName: model.displayName } : {}),
+    source,
+  }
+}
+
+function dedupeModelChoices(models: ProviderModelChoice[]): ProviderModelChoice[] {
+  const seen = new Set<string>()
+  const result: ProviderModelChoice[] = []
+  for (const model of models) {
+    const id = model.id.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    result.push({
+      id,
+      ...(model.displayName?.trim() ? { displayName: model.displayName.trim() } : {}),
+      source: model.source ?? 'manual',
+    })
+  }
+  return result
+}
+
+function getModeModelSettings(
+  engineSettings: AppSettings['provider']['byEngine'][AIEngineKind],
+  mode: ApiProvider | null,
+): { selectedModels: ProviderModelChoice[]; defaultModel: string } {
+  if (!mode) {
+    return {
+      selectedModels: engineSettings.defaultModel
+        ? [{ id: engineSettings.defaultModel, source: 'legacy' }]
+        : [],
+      defaultModel: engineSettings.defaultModel ?? '',
+    }
+  }
+
+  const stored = engineSettings.modelSelectionsByMode?.[mode]
+  const selectedModels = dedupeModelChoices(
+    stored?.selectedModels?.length
+      ? stored.selectedModels
+      : engineSettings.defaultModel
+        ? [{ id: engineSettings.defaultModel, source: 'legacy' }]
+        : [],
+  )
+  const defaultModel = stored?.defaultModel?.trim()
+    || engineSettings.defaultModel?.trim()
+    || selectedModels[0]?.id
+    || ''
+
+  return {
+    selectedModels,
+    defaultModel: selectedModels.some((model) => model.id === defaultModel)
+      ? defaultModel
+      : selectedModels[0]?.id ?? '',
+  }
+}
+
+function buildEngineSettingsWithModelSelection(params: {
+  engineSettings: AppSettings['provider']['byEngine'][AIEngineKind]
+  mode: ApiProvider
+  selectedModels: ProviderModelChoice[]
+  defaultModel?: string
+  sourceUrl?: string
+  lastFetchedAt?: number
+}): AppSettings['provider']['byEngine'][AIEngineKind] {
+  const selectedModels = dedupeModelChoices(params.selectedModels)
+  const requestedDefault = params.defaultModel?.trim()
+  const defaultModel = requestedDefault && selectedModels.some((model) => model.id === requestedDefault)
+    ? requestedDefault
+    : selectedModels[0]?.id
+  const currentByMode = params.engineSettings.modelSelectionsByMode ?? {}
+
+  return {
+    ...params.engineSettings,
+    defaultModel,
+    modelSelectionsByMode: {
+      ...currentByMode,
+      [params.mode]: {
+        selectedModels,
+        ...(defaultModel ? { defaultModel } : {}),
+        ...(params.sourceUrl ? { sourceUrl: params.sourceUrl } : {}),
+        ...(params.lastFetchedAt !== undefined ? { lastFetchedAt: params.lastFetchedAt } : {}),
+      },
+    },
   }
 }
 
@@ -423,6 +513,15 @@ export function ProviderSection(): React.JSX.Element {
   const [editValues, setEditValues] = useState<ProviderCredentialInfo | null>(null)
   const [activeEngine, setActiveEngine] = useState<AIEngineKind>(() => resolveInitialOpenEngine(settings))
   const [checkingStatus, setCheckingStatus] = useState(false)
+  const [fetchedModelResultByEngine, setFetchedModelResultByEngine] = useState<Record<AIEngineKind, ProviderModelListResult | null>>({
+    claude: null,
+    codex: null,
+  })
+  const [fetchingModelEngine, setFetchingModelEngine] = useState<AIEngineKind | null>(null)
+  const [modelFetchErrorByEngine, setModelFetchErrorByEngine] = useState<Record<AIEngineKind, string | null>>({
+    claude: null,
+    codex: null,
+  })
 
   const defaultEngine = settings.command.defaultEngine
   const providerByEngine = settings.provider.byEngine
@@ -438,6 +537,18 @@ export function ProviderSection(): React.JSX.Element {
   const isAuthenticated = isStatusForActiveMode && activeEngineStatus?.state === 'authenticated'
   const isAuthenticating = !isAuthenticated
     && ((isStatusForActiveMode && activeEngineStatus?.state === 'authenticating') || loading)
+  const fetchedModelsForActiveEngine = fetchedModelResultByEngine[activeEngine]?.models ?? []
+  const fetchedSourceUrl = fetchedModelResultByEngine[activeEngine]?.sourceUrl
+  const modelFetchError = modelFetchErrorByEngine[activeEngine]
+  const isFetchingModels = fetchingModelEngine === activeEngine
+  const activeModeModels = getModeModelSettings(activeEngineConfig, effectiveActiveMode)
+  const selectedModelsForActiveMode = activeModeModels.selectedModels
+  const selectedModelIdsForActiveMode = useMemo(
+    () => new Set(selectedModelsForActiveMode.map((model) => model.id)),
+    [selectedModelsForActiveMode],
+  )
+  const defaultModelForActiveMode = activeModeModels.defaultModel
+  const [manualModelInput, setManualModelInput] = useState('')
 
   const resetTransientState = useCallback(() => {
     setError(null)
@@ -579,51 +690,92 @@ export function ProviderSection(): React.JSX.Element {
     }
   }, [activeEngine, effectiveActiveMode, resetTransientState, setProviderStatusForEngine])
 
-  // ── Debounced default model input ──────────────────────────────────────
-  // Local state provides instant keystroke feedback; the actual settings
-  // update (global store + IPC persist) is debounced to avoid hammering
-  // the backend on every character.
-  const [localModelInput, setLocalModelInput] = useState(activeEngineConfig.defaultModel ?? '')
+  const updateModelSelectionSetting = useCallback(async (
+    selectedModels: ProviderModelChoice[],
+    defaultModel?: string,
+    metadata?: { sourceUrl?: string; lastFetchedAt?: number },
+  ) => {
+    if (!effectiveActiveMode) return
+    const nextEngineSettings = buildEngineSettingsWithModelSelection({
+      engineSettings: settings.provider.byEngine[activeEngine] ?? { activeMode: null },
+      mode: effectiveActiveMode,
+      selectedModels,
+      defaultModel,
+      sourceUrl: metadata?.sourceUrl ?? activeEngineConfig.modelSelectionsByMode?.[effectiveActiveMode]?.sourceUrl,
+      lastFetchedAt: metadata?.lastFetchedAt ?? activeEngineConfig.modelSelectionsByMode?.[effectiveActiveMode]?.lastFetchedAt,
+    })
 
-  // Sync external changes (e.g. engine tab switch) into local state
-  const prevEngineRef = useRef(activeEngine)
-  useEffect(() => {
-    if (prevEngineRef.current !== activeEngine) {
-      prevEngineRef.current = activeEngine
-      setLocalModelInput(activeEngineConfig.defaultModel ?? '')
-    }
-  }, [activeEngine, activeEngineConfig.defaultModel])
-
-  const modelUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const handleDefaultModelChange = useCallback((nextValue: string) => {
-    setLocalModelInput(nextValue) // immediate UI update
-
-    // Debounce the expensive global settings update + IPC persistence
-    if (modelUpdateTimerRef.current) clearTimeout(modelUpdateTimerRef.current)
-    modelUpdateTimerRef.current = setTimeout(() => {
-      updateSettings({
-        ...settings,
-        provider: {
-          ...settings.provider,
-          byEngine: {
-            ...settings.provider.byEngine,
-            [activeEngine]: {
-              ...(settings.provider.byEngine[activeEngine] ?? { activeMode: null }),
-              defaultModel: nextValue || undefined,
-            },
-          },
+    await updateSettings({
+      ...settings,
+      provider: {
+        ...settings.provider,
+        byEngine: {
+          ...settings.provider.byEngine,
+          [activeEngine]: nextEngineSettings,
         },
-      })
-    }, 300)
-  }, [activeEngine, settings, updateSettings])
+      },
+    })
+  }, [activeEngine, activeEngineConfig.modelSelectionsByMode, effectiveActiveMode, settings, updateSettings])
 
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (modelUpdateTimerRef.current) clearTimeout(modelUpdateTimerRef.current)
+  const handleToggleFetchedModel = useCallback((model: ProviderModelInfo, checked: boolean) => {
+    const nextSelected = checked
+      ? dedupeModelChoices([...selectedModelsForActiveMode, modelChoiceFromInfo(model, 'provider')])
+      : selectedModelsForActiveMode.filter((candidate) => candidate.id !== model.id)
+    const nextDefault = checked
+      ? (defaultModelForActiveMode || model.id)
+      : (defaultModelForActiveMode === model.id ? nextSelected[0]?.id : defaultModelForActiveMode)
+    void updateModelSelectionSetting(nextSelected, nextDefault, {
+      sourceUrl: fetchedSourceUrl,
+      lastFetchedAt: fetchedSourceUrl ? Date.now() : undefined,
+    })
+  }, [defaultModelForActiveMode, fetchedSourceUrl, selectedModelsForActiveMode, updateModelSelectionSetting])
+
+  const handleRemoveSelectedModel = useCallback((modelId: string) => {
+    const nextSelected = selectedModelsForActiveMode.filter((candidate) => candidate.id !== modelId)
+    const nextDefault = defaultModelForActiveMode === modelId ? nextSelected[0]?.id : defaultModelForActiveMode
+    void updateModelSelectionSetting(nextSelected, nextDefault)
+  }, [defaultModelForActiveMode, selectedModelsForActiveMode, updateModelSelectionSetting])
+
+  const handleDefaultModelSelect = useCallback((modelId: string) => {
+    if (!modelId) return
+    void updateModelSelectionSetting(selectedModelsForActiveMode, modelId)
+  }, [selectedModelsForActiveMode, updateModelSelectionSetting])
+
+  const handleAddManualModel = useCallback(() => {
+    const modelId = manualModelInput.trim()
+    if (!modelId) return
+    const nextSelected = dedupeModelChoices([
+      ...selectedModelsForActiveMode,
+      { id: modelId, source: 'manual' },
+    ])
+    void updateModelSelectionSetting(nextSelected, defaultModelForActiveMode || modelId)
+    setManualModelInput('')
+  }, [defaultModelForActiveMode, manualModelInput, selectedModelsForActiveMode, updateModelSelectionSetting])
+
+  const handleFetchModels = useCallback(async () => {
+    if (!effectiveActiveMode || isFetchingModels) return
+
+    setFetchingModelEngine(activeEngine)
+    setModelFetchErrorByEngine((current) => ({ ...current, [activeEngine]: null }))
+
+    try {
+      const result = await getAppAPI()['provider:list-models'](activeEngine)
+      setFetchedModelResultByEngine((current) => ({ ...current, [activeEngine]: result }))
+      if (result.models.length === 0) {
+        setModelFetchErrorByEngine((current) => ({
+          ...current,
+          [activeEngine]: t('provider.modelFetch.empty'),
+        }))
+      }
+    } catch (eventError) {
+      setModelFetchErrorByEngine((current) => ({
+        ...current,
+        [activeEngine]: eventError instanceof Error ? eventError.message : String(eventError),
+      }))
+    } finally {
+      setFetchingModelEngine((current) => (current === activeEngine ? null : current))
     }
-  }, [])
+  }, [activeEngine, effectiveActiveMode, isFetchingModels, t])
 
   const handleDefaultReasoningEffortChange = useCallback((nextValue: CodexReasoningEffort) => {
     if (activeEngine !== 'codex') return
@@ -729,32 +881,168 @@ export function ProviderSection(): React.JSX.Element {
                 title={t('provider.steps.model.title')}
                 description={t('provider.steps.model.description')}
               />
-              <label className="block text-sm font-medium mb-1">
-                {t('provider.defaultModel')}
-                <span className="ml-1.5 text-xs font-normal text-[hsl(var(--muted-foreground))]">{t('provider.optional')}</span>
-              </label>
-              <input
-                type="text"
-                disabled={!effectiveActiveMode}
-                list={`provider-model-options-${activeEngine}`}
-                value={localModelInput}
-                onChange={(event) => handleDefaultModelChange(event.target.value)}
-                placeholder={t('provider.defaultModelPlaceholder')}
-                className={cn(
-                  'w-full rounded-md border bg-[hsl(var(--background))] px-3 py-1.5 text-sm outline-none font-mono',
-                  'focus:ring-2 focus:ring-[hsl(var(--ring))]',
-                  'border-[hsl(var(--border))]',
-                  !effectiveActiveMode && 'opacity-60 cursor-not-allowed',
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="min-w-0 flex-1">
+                    <label className="block text-sm font-medium mb-1">
+                      {t('provider.defaultModel')}
+                      <span className="ml-1.5 text-xs font-normal text-[hsl(var(--muted-foreground))]">{t('provider.optional')}</span>
+                    </label>
+                    <select
+                      disabled={!effectiveActiveMode || selectedModelsForActiveMode.length === 0}
+                      value={defaultModelForActiveMode}
+                      onChange={(event) => handleDefaultModelSelect(event.target.value)}
+                      className={cn(
+                        'w-full rounded-md border bg-[hsl(var(--background))] pl-3 pr-8 py-1.5 text-sm outline-none font-mono',
+                        'focus:ring-2 focus:ring-[hsl(var(--ring))]',
+                        'border-[hsl(var(--border))]',
+                        (!effectiveActiveMode || selectedModelsForActiveMode.length === 0) && 'opacity-60 cursor-not-allowed',
+                      )}
+                    >
+                      {selectedModelsForActiveMode.length === 0 ? (
+                        <option value="">{t('provider.modelSelection.noSelected')}</option>
+                      ) : (
+                        selectedModelsForActiveMode.map((model) => (
+                          <option key={`default-${activeEngine}-${model.id}`} value={model.id}>
+                            {model.displayName ? `${model.displayName} (${model.id})` : model.id}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleFetchModels()}
+                    disabled={!effectiveActiveMode || isFetchingModels}
+                    title={t('provider.modelFetch.button')}
+                    className={cn(
+                      'inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors',
+                      'border-[hsl(var(--border))] hover:bg-[hsl(var(--foreground)/0.04)]',
+                      'disabled:opacity-50 disabled:cursor-not-allowed',
+                    )}
+                  >
+                    {isFetchingModels ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    <span>{isFetchingModels ? t('provider.modelFetch.loading') : t('provider.modelFetch.button')}</span>
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('provider.modelSelection.manualLabel')}</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      disabled={!effectiveActiveMode}
+                      value={manualModelInput}
+                      onChange={(event) => setManualModelInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') handleAddManualModel()
+                      }}
+                      placeholder={t('provider.defaultModelPlaceholder')}
+                      className={cn(
+                        'min-w-0 flex-1 rounded-md border bg-[hsl(var(--background))] px-3 py-1.5 text-sm outline-none font-mono',
+                        'focus:ring-2 focus:ring-[hsl(var(--ring))]',
+                        'border-[hsl(var(--border))]',
+                        !effectiveActiveMode && 'opacity-60 cursor-not-allowed',
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddManualModel}
+                      disabled={!effectiveActiveMode || !manualModelInput.trim()}
+                      className={cn(
+                        'inline-flex h-9 shrink-0 items-center justify-center rounded-md border px-3 text-sm font-medium transition-colors',
+                        'border-[hsl(var(--border))] hover:bg-[hsl(var(--foreground)/0.04)]',
+                        'disabled:opacity-50 disabled:cursor-not-allowed',
+                      )}
+                      aria-label={t('provider.modelSelection.addManual')}
+                      title={t('provider.modelSelection.addManual')}
+                    >
+                      <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-[hsl(var(--muted-foreground))]">
+                    {t('provider.modelSelection.selectedLabel', { count: selectedModelsForActiveMode.length })}
+                  </p>
+                  {selectedModelsForActiveMode.length === 0 ? (
+                    <p className="rounded-md border border-dashed border-[hsl(var(--border))] px-3 py-2 text-xs text-[hsl(var(--muted-foreground))]">
+                      {effectiveActiveMode ? t('provider.modelSelection.emptySelected') : t('provider.steps.model.empty')}
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedModelsForActiveMode.map((model) => (
+                        <span
+                          key={`selected-${activeEngine}-${model.id}`}
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--foreground)/0.03)] px-2 py-1 text-xs"
+                        >
+                          <span className="min-w-0 truncate font-mono">
+                            {model.displayName ? `${model.displayName} (${model.id})` : model.id}
+                          </span>
+                          {defaultModelForActiveMode === model.id && (
+                            <span className="rounded bg-[hsl(var(--primary)/0.12)] px-1 text-[10px] text-[hsl(var(--primary))]">
+                              {t('provider.modelSelection.defaultBadge')}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSelectedModel(model.id)}
+                            className="rounded p-0.5 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--foreground)/0.08)] hover:text-[hsl(var(--foreground))]"
+                            aria-label={t('provider.modelSelection.removeModel', { model: model.id })}
+                            title={t('provider.modelSelection.removeModel', { model: model.id })}
+                          >
+                            <X className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {fetchedModelsForActiveEngine.length > 0 && (
+                  <div className="rounded-md border border-[hsl(var(--border))]">
+                    <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
+                      <p className="text-xs font-medium">
+                        {t('provider.modelFetch.selectPlaceholder', { count: fetchedModelsForActiveEngine.length })}
+                      </p>
+                      {fetchedSourceUrl && (
+                        <p className="max-w-[50%] truncate text-[10px] text-[hsl(var(--muted-foreground))]" title={fetchedSourceUrl}>
+                          {fetchedSourceUrl}
+                        </p>
+                      )}
+                    </div>
+                    <div className="max-h-48 overflow-y-auto p-1.5">
+                      {fetchedModelsForActiveEngine.map((model) => (
+                        <label
+                          key={`fetched-${activeEngine}-${model.id}`}
+                          className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-[hsl(var(--foreground)/0.04)]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedModelIdsForActiveMode.has(model.id)}
+                            onChange={(event) => handleToggleFetchedModel(model, event.target.checked)}
+                            className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
+                          />
+                          <span className="min-w-0 flex-1 truncate font-mono">
+                            {model.displayName ? `${model.displayName} (${model.id})` : model.id}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 )}
-              />
-              <datalist id={`provider-model-options-${activeEngine}`}>
-                {MODEL_SUGGESTIONS_BY_ENGINE[activeEngine].map((model) => (
-                  <option key={model} value={model} />
-                ))}
-              </datalist>
+              </div>
               <p className="mt-1.5 text-xs text-[hsl(var(--muted-foreground))]">
                 {effectiveActiveMode ? t('provider.defaultModelHint') : t('provider.steps.model.empty')}
               </p>
+              {modelFetchError && (
+                <p className="mt-1.5 text-xs text-red-400">{modelFetchError}</p>
+              )}
 
               {activeEngine === 'codex' && (
                 <div className="mt-4">

@@ -303,6 +303,7 @@ export async function createAppServices(deps: ServiceFactoryDeps): Promise<AppSe
     },
     backgroundCredentialStore: backgroundModelCredentialStore,
     getProviderSettings: () => settingsService.getProviderSettings(),
+    getFetch: () => proxyFetchFactory.getStandardFetch(),
     focusApp: focusMainWindow,
   })
 

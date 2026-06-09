@@ -50,6 +50,7 @@ export function AgentChatView({ agent }: AgentChatViewProps): React.JSX.Element 
           key={agent.projectPath ?? '__all__'}
           onSend={agent.sendOrQueue}
           projectName={agent.projectName}
+          modelSelection={agent.modelSelection}
         />
       </ProjectScopeProvider>
     )
@@ -74,6 +75,7 @@ export function AgentChatView({ agent }: AgentChatViewProps): React.JSX.Element 
           isPaused={agent.isPaused}
           controlsMaxW={CONTENT_MAX_W}
           pausedPlaceholder={t('agentChat.continueConversation')}
+          modelSelection={agent.modelSelection ?? undefined}
           registerAsChatTabInput
         />
       </ProjectScopeProvider>
@@ -156,10 +158,12 @@ function SuggestionChips({
 
 function EmptyChat({
   onSend,
-  projectName
+  projectName,
+  modelSelection,
 }: {
   onSend: (message: UserMessageContent) => Promise<boolean>
   projectName: string | null
+  modelSelection: AgentSessionHandle['modelSelection']
 }): React.JSX.Element {
   const { t } = useTranslation('sessions')
   const isGlobal = !projectName
@@ -212,7 +216,13 @@ function EmptyChat({
 
         {/* Hero Input */}
         <div className="w-full">
-          <ChatHeroInput onSend={onSend} placeholder={placeholder} registerAsChatTabInput />
+          <ChatHeroInput
+            onSend={onSend}
+            placeholder={placeholder}
+            engineKind={modelSelection?.value?.engineKind}
+            modelSelection={modelSelection ?? undefined}
+            registerAsChatTabInput
+          />
         </div>
 
         {/* Suggestion Chips */}

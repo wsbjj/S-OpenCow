@@ -229,6 +229,14 @@
     "inputAria": "开始与 Claude Code 智能体的对话",
     "sendAria": "发送消息"
   },
+  "modelSwitcher": {
+    "aria": "切换模型",
+    "fallback": "模型",
+    "engines": {
+      "claude": "Claude",
+      "codex": "Codex"
+    }
+  },
   "sessionPanel": {
     "noSessionYet": "暂无会话",
     "startSession": "启动会话",

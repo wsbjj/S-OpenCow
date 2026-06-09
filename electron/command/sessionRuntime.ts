@@ -42,6 +42,9 @@ export interface SessionRuntime {
   /** Provider mode frozen at lifecycle spawn — used to detect mid-session provider drift. */
   providerMode: ApiProvider | null
 
+  /** Model option frozen at lifecycle spawn — used to detect session model drift. */
+  launchModel: string | null
+
   /** Consecutive transient spawn-error count — reset on successful stream start. */
   spawnErrorCount: number
 

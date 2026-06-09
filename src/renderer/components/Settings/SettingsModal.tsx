@@ -80,7 +80,7 @@ export function SettingsModal(): React.JSX.Element | null {
   }, [open, initialTab])
 
   return (
-    <Dialog open={open} onClose={close} title={t('title')} size="4xl" className="flex flex-col h-[70vh]">
+    <Dialog open={open} onClose={close} title={t('title')} size="4xl" className="flex flex-col h-[70vh]" preventOverlayClose>
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-[hsl(var(--border))]">
         <h2 className="text-base font-semibold">{t('title')}</h2>

@@ -112,6 +112,21 @@ describe('ManagedSessionStore', () => {
       expect(loaded?.engineState).toEqual({ checkpoint: 'abc' })
     })
 
+    it('persists desired session engine and model separately from observed runtime model', async () => {
+      await store.save(makeSession({
+        id: 'ccb-desired-model-1',
+        engineKind: 'claude',
+        desiredEngineKind: 'codex',
+        desiredModel: 'gpt-5.3-codex',
+        model: 'claude-sonnet-4-6',
+      }))
+
+      const loaded = await store.get('ccb-desired-model-1')
+      expect(loaded?.desiredEngineKind).toBe('codex')
+      expect(loaded?.desiredModel).toBe('gpt-5.3-codex')
+      expect(loaded?.model).toBe('claude-sonnet-4-6')
+    })
+
     it('round-trips review origin payload fields', async () => {
       await store.save(makeSession({
         id: 'ccb-review-1',
