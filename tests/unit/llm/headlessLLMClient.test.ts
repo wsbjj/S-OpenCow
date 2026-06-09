@@ -7,25 +7,25 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { HeadlessLLMClientImpl } from '../../../electron/llm/headlessLLMClient'
 
 vi.mock('ai', () => ({
-  generateText: vi.fn(),
+  generateText: vi.fn()
 }))
 
 vi.mock('@ai-sdk/openai', () => ({
-  createOpenAI: vi.fn(),
+  createOpenAI: vi.fn()
 }))
 
 vi.mock('@ai-sdk/anthropic', () => ({
-  createAnthropic: vi.fn(),
+  createAnthropic: vi.fn()
 }))
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
   warn: vi.fn(),
-  error: vi.fn(),
+  error: vi.fn()
 }))
 
 vi.mock('../../../electron/platform/logger', () => ({
-  createLogger: vi.fn(() => logger),
+  createLogger: vi.fn(() => logger)
 }))
 
 const mockedGenerateText = vi.mocked(generateText)
@@ -41,11 +41,245 @@ describe('HeadlessLLMClientImpl', () => {
     mockedGenerateText.mockResolvedValue({ text: 'ok' } as Awaited<ReturnType<typeof generateText>>)
   })
 
-  it('uses OpenAI chat completions and passes system prompt to generateText', async () => {
+  it('uses OpenAI responses first for small GPT-5 models without max tokens on compatible custom endpoints', async () => {
     const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
+    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
     const openaiProvider = Object.assign(vi.fn(), {
       chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(),
+      responses: vi.fn(() => openaiResponsesModel)
+    })
+    mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
+    mockedGenerateText.mockResolvedValueOnce({ text: '{"memories":[]}' } as Awaited<
+      ReturnType<typeof generateText>
+    >)
+
+    const client = new HeadlessLLMClientImpl({
+      resolveAuth: async () => ({
+        protocol: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://agent.cam01.cn',
+        authStyle: 'bearer',
+        model: 'gpt-5.4-mini'
+      }),
+      getFetch: () => fetch
+    })
+
+    const text = await client.query({
+      systemPrompt: 'system instructions',
+      userMessage: 'user message',
+      maxTokens: 123,
+      timeoutMs: 5_000
+    })
+
+    expect(text).toBe('{"memories":[]}')
+    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(openaiProvider.chat).not.toHaveBeenCalled()
+    expect(mockedGenerateText).toHaveBeenCalledTimes(1)
+    expect(mockedGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: openaiResponsesModel,
+        system: 'system instructions',
+        prompt: 'user message',
+        providerOptions: {
+          openai: {
+            instructions: 'system instructions',
+            systemMessageMode: 'remove'
+          }
+        }
+      })
+    )
+    expect(mockedGenerateText).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        maxOutputTokens: expect.any(Number)
+      })
+    )
+  })
+
+  it('keeps max output tokens on official OpenAI small-model responses calls', async () => {
+    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
+    const openaiProvider = Object.assign(vi.fn(), {
+      chat: vi.fn(),
+      responses: vi.fn(() => openaiResponsesModel)
+    })
+    mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
+    mockedGenerateText.mockResolvedValueOnce({ text: '{"memories":[]}' } as Awaited<
+      ReturnType<typeof generateText>
+    >)
+
+    const client = new HeadlessLLMClientImpl({
+      resolveAuth: async () => ({
+        protocol: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com',
+        authStyle: 'bearer',
+        model: 'gpt-5.4-mini'
+      }),
+      getFetch: () => fetch
+    })
+
+    await expect(
+      client.query({
+        systemPrompt: 'system instructions',
+        userMessage: 'user message',
+        maxTokens: 123
+      })
+    ).resolves.toBe('{"memories":[]}')
+
+    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(openaiProvider.chat).not.toHaveBeenCalled()
+    expect(mockedGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: openaiResponsesModel,
+        maxOutputTokens: 123
+      })
+    )
+  })
+
+  it('falls back to OpenAI chat completions when small GPT-5 responses is unsupported', async () => {
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
+    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
+    const openaiProvider = Object.assign(vi.fn(), {
+      chat: vi.fn(() => openaiChatModel),
+      responses: vi.fn(() => openaiResponsesModel)
+    })
+    const responsesError = Object.assign(new Error('Bad Request'), {
+      name: 'AI_APICallError',
+      statusCode: 400,
+      url: 'https://agent.cam01.cn/v1/responses',
+      responseBody: '{"detail":"Unsupported parameter: max_output_tokens"}'
+    })
+    mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
+    mockedGenerateText
+      .mockRejectedValueOnce(responsesError)
+      .mockResolvedValueOnce({ text: '{"memories":[]}' } as Awaited<
+        ReturnType<typeof generateText>
+      >)
+
+    const client = new HeadlessLLMClientImpl({
+      resolveAuth: async () => ({
+        protocol: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://agent.cam01.cn',
+        authStyle: 'bearer',
+        model: 'gpt-5.4-mini'
+      }),
+      getFetch: () => fetch
+    })
+
+    await expect(
+      client.query({
+        systemPrompt: 'system instructions',
+        userMessage: 'user message'
+      })
+    ).resolves.toBe('{"memories":[]}')
+
+    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(mockedGenerateText).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ model: openaiResponsesModel })
+    )
+    expect(mockedGenerateText).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ model: openaiChatModel })
+    )
+    expect(logger.error).not.toHaveBeenCalled()
+  })
+
+  it('falls back to OpenAI chat completions when small GPT-5 responses returns empty text', async () => {
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
+    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
+    const openaiProvider = Object.assign(vi.fn(), {
+      chat: vi.fn(() => openaiChatModel),
+      responses: vi.fn(() => openaiResponsesModel)
+    })
+    mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
+    mockedGenerateText
+      .mockResolvedValueOnce({ text: '', finishReason: 'stop', content: [] } as Awaited<
+        ReturnType<typeof generateText>
+      >)
+      .mockResolvedValueOnce({ text: '{"memories":[]}' } as Awaited<
+        ReturnType<typeof generateText>
+      >)
+
+    const client = new HeadlessLLMClientImpl({
+      resolveAuth: async () => ({
+        protocol: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://agent.cam01.cn',
+        authStyle: 'bearer',
+        model: 'gpt-5.4-mini'
+      }),
+      getFetch: () => fetch
+    })
+
+    await expect(
+      client.query({
+        systemPrompt: 'system instructions',
+        userMessage: 'user message'
+      })
+    ).resolves.toBe('{"memories":[]}')
+
+    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(mockedGenerateText).toHaveBeenCalledTimes(2)
+    expect(logger.debug).toHaveBeenCalledWith(
+      'HeadlessLLMClient received empty text',
+      expect.objectContaining({ apiPath: 'responses' })
+    )
+  })
+
+  it('propagates non-compatibility responses errors instead of falling back to chat', async () => {
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
+    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
+    const openaiProvider = Object.assign(vi.fn(), {
+      chat: vi.fn(() => openaiChatModel),
+      responses: vi.fn(() => openaiResponsesModel)
+    })
+    const responsesError = Object.assign(new Error('Bad Request'), {
+      name: 'AI_APICallError',
+      statusCode: 400,
+      url: 'https://agent.cam01.cn/v1/responses',
+      responseBody:
+        '{"error":{"message":"invalid model: gpt-5.4-mini","type":"invalid_request_error"}}'
+    })
+    mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
+    mockedGenerateText.mockRejectedValueOnce(responsesError)
+
+    const client = new HeadlessLLMClientImpl({
+      resolveAuth: async () => ({
+        protocol: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://agent.cam01.cn',
+        authStyle: 'bearer',
+        model: 'gpt-5.4-mini'
+      }),
+      getFetch: () => fetch
+    })
+
+    await expect(
+      client.query({
+        systemPrompt: 'system instructions',
+        userMessage: 'user message'
+      })
+    ).rejects.toThrow('Bad Request')
+
+    expect(openaiProvider.chat).not.toHaveBeenCalled()
+    expect(logger.error).toHaveBeenCalledWith(
+      'HeadlessLLMClient query failed',
+      expect.objectContaining({
+        model: 'gpt-5.4-mini',
+        statusCode: 400
+      }),
+      responsesError
+    )
+  })
+
+  it('uses OpenAI chat completions and passes system prompt to generateText for larger GPT-5 models', async () => {
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4' }
+    const openaiProvider = Object.assign(vi.fn(), {
+      chat: vi.fn(() => openaiChatModel),
+      responses: vi.fn()
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
 
@@ -55,40 +289,42 @@ describe('HeadlessLLMClientImpl', () => {
         apiKey: 'sk-test',
         baseUrl: 'https://agent.cam01.cn',
         authStyle: 'bearer',
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5.4'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
     const text = await client.query({
       systemPrompt: 'system instructions',
       userMessage: 'user message',
       maxTokens: 123,
-      timeoutMs: 5_000,
+      timeoutMs: 5_000
     })
 
     expect(text).toBe('ok')
     expect(mockedCreateOpenAI).toHaveBeenCalledWith({
       apiKey: 'sk-test',
       baseURL: 'https://agent.cam01.cn/v1',
-      fetch,
+      fetch
     })
-    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-5.4')
     expect(openaiProvider.responses).not.toHaveBeenCalled()
     expect(openaiProvider).not.toHaveBeenCalled()
-    expect(mockedGenerateText).toHaveBeenCalledWith(expect.objectContaining({
-      model: openaiChatModel,
-      system: 'system instructions',
-      prompt: 'user message',
-      maxOutputTokens: 123,
-    }))
+    expect(mockedGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: openaiChatModel,
+        system: 'system instructions',
+        prompt: 'user message',
+        maxOutputTokens: 123
+      })
+    )
   })
 
   it('normalizes OpenAI base URLs with a trailing /v1 slash', async () => {
     const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-4o-mini' }
     const openaiProvider = Object.assign(vi.fn(), {
       chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(),
+      responses: vi.fn()
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
 
@@ -98,29 +334,29 @@ describe('HeadlessLLMClientImpl', () => {
         apiKey: 'sk-test',
         baseUrl: 'https://agent.cam01.cn/v1/',
         authStyle: 'bearer',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o-mini'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
     await client.query({
       systemPrompt: 'system instructions',
-      userMessage: 'user message',
+      userMessage: 'user message'
     })
 
     expect(mockedCreateOpenAI).toHaveBeenCalledWith({
       apiKey: 'sk-test',
       baseURL: 'https://agent.cam01.cn/v1',
-      fetch,
+      fetch
     })
   })
 
-  it('falls back to OpenAI responses for gpt-5 chat completions with empty text', async () => {
-    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
-    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
+  it('falls back to OpenAI responses for official gpt-5 chat completions with empty text', async () => {
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4' }
+    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4' }
     const openaiProvider = Object.assign(vi.fn(), {
       chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(() => openaiResponsesModel),
+      responses: vi.fn(() => openaiResponsesModel)
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
     mockedGenerateText
@@ -128,53 +364,55 @@ describe('HeadlessLLMClientImpl', () => {
         text: '',
         finishReason: 'stop',
         content: [],
-        totalUsage: { inputTokens: 10, outputTokens: 0, totalTokens: 10 },
+        totalUsage: { inputTokens: 10, outputTokens: 0, totalTokens: 10 }
       } as Awaited<ReturnType<typeof generateText>>)
-      .mockResolvedValueOnce({ text: '{"memories":[]}' } as Awaited<ReturnType<typeof generateText>>)
+      .mockResolvedValueOnce({ text: '{"memories":[]}' } as Awaited<
+        ReturnType<typeof generateText>
+      >)
 
     const client = new HeadlessLLMClientImpl({
       resolveAuth: async () => ({
         protocol: 'openai',
         apiKey: 'sk-test',
-        baseUrl: 'https://agent.cam01.cn',
+        baseUrl: 'https://api.openai.com',
         authStyle: 'bearer',
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5.4'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
     const text = await client.query({
       systemPrompt: 'system instructions',
-      userMessage: 'user message',
+      userMessage: 'user message'
     })
 
     expect(text).toBe('{"memories":[]}')
-    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-5.4-mini')
-    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4-mini')
-    expect(mockedGenerateText).toHaveBeenNthCalledWith(1, expect.objectContaining({ model: openaiChatModel }))
-    expect(mockedGenerateText).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      model: openaiResponsesModel,
-      providerOptions: {
-        openai: {
-          instructions: 'system instructions',
-          systemMessageMode: 'remove',
-        },
-      },
-    }))
+    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-5.4')
+    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4')
+    expect(mockedGenerateText).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ model: openaiChatModel })
+    )
+    expect(mockedGenerateText).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        model: openaiResponsesModel,
+        providerOptions: {
+          openai: {
+            instructions: 'system instructions',
+            systemMessageMode: 'remove'
+          }
+        }
+      })
+    )
   })
 
-  it('propagates OpenAI responses fallback API failures after empty chat text', async () => {
-    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
-    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
+  it('falls back to OpenAI responses for custom gpt-5-compatible chat endpoints with empty text', async () => {
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4' }
+    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4' }
     const openaiProvider = Object.assign(vi.fn(), {
       chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(() => openaiResponsesModel),
-    })
-    const apiError = Object.assign(new Error('Bad Request'), {
-      name: 'AI_APICallError',
-      statusCode: 400,
-      responseBody: '{"detail":"Instructions are required"}',
-      url: 'https://agent.cam01.cn/v1/responses',
+      responses: vi.fn(() => openaiResponsesModel)
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
     mockedGenerateText
@@ -185,11 +423,11 @@ describe('HeadlessLLMClientImpl', () => {
         response: {
           body: {
             id: 'resp-chat-empty',
-            choices: [{ message: { content: null } }],
-          },
-        },
+            choices: [{ message: { content: null } }]
+          }
+        }
       } as unknown as Awaited<ReturnType<typeof generateText>>)
-      .mockRejectedValueOnce(apiError)
+      .mockResolvedValueOnce({ text: 'ok' } as Awaited<ReturnType<typeof generateText>>)
 
     const client = new HeadlessLLMClientImpl({
       resolveAuth: async () => ({
@@ -197,39 +435,41 @@ describe('HeadlessLLMClientImpl', () => {
         apiKey: 'sk-test',
         baseUrl: 'https://agent.cam01.cn',
         authStyle: 'bearer',
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5.4'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
-    await expect(client.query({
-      systemPrompt: 'system instructions',
-      userMessage: 'user message',
-    })).rejects.toThrow('Bad Request')
+    await expect(
+      client.query({
+        systemPrompt: 'system instructions',
+        userMessage: 'user message'
+      })
+    ).resolves.toBe('ok')
 
-    expect(logger.error).toHaveBeenCalledWith(
-      'HeadlessLLMClient query failed',
-      expect.objectContaining({
-        protocol: 'openai',
-        model: 'gpt-5.4-mini',
-        errorName: 'AI_APICallError',
-        statusCode: 400,
-      }),
-      apiError,
+    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-5.4')
+    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4')
+    expect(mockedGenerateText).toHaveBeenCalledTimes(2)
+    expect(mockedGenerateText).toHaveBeenNthCalledWith(
+      2,
+      expect.not.objectContaining({
+        maxOutputTokens: expect.any(Number)
+      })
     )
+    expect(logger.error).not.toHaveBeenCalled()
   })
 
   it('uses OpenAI chat content text parts when result text is empty', async () => {
-    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4' }
     const openaiProvider = Object.assign(vi.fn(), {
       chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(),
+      responses: vi.fn()
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
     mockedGenerateText.mockResolvedValueOnce({
       text: '',
       finishReason: 'stop',
-      content: [{ type: 'text', text: '{"memories":[]}' }],
+      content: [{ type: 'text', text: '{"memories":[]}' }]
     } as unknown as Awaited<ReturnType<typeof generateText>>)
 
     const client = new HeadlessLLMClientImpl({
@@ -238,14 +478,14 @@ describe('HeadlessLLMClientImpl', () => {
         apiKey: 'sk-test',
         baseUrl: 'https://agent.cam01.cn',
         authStyle: 'bearer',
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5.4'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
     const text = await client.query({
       systemPrompt: 'system instructions',
-      userMessage: 'user message',
+      userMessage: 'user message'
     })
 
     expect(text).toBe('{"memories":[]}')
@@ -253,10 +493,10 @@ describe('HeadlessLLMClientImpl', () => {
   })
 
   it('uses OpenAI chat raw response JSON when result text is empty', async () => {
-    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-4o-mini' }
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-4o' }
     const openaiProvider = Object.assign(vi.fn(), {
       chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(),
+      responses: vi.fn()
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
     mockedGenerateText.mockResolvedValueOnce({
@@ -266,16 +506,16 @@ describe('HeadlessLLMClientImpl', () => {
       response: {
         body: {
           id: 'chatcmpl-1',
-          model: 'gpt-4o-mini',
+          model: 'gpt-4o',
           choices: [
             {
               message: {
-                content: '{"memories":[]}',
-              },
-            },
-          ],
-        },
-      },
+                content: '{"memories":[]}'
+              }
+            }
+          ]
+        }
+      }
     } as unknown as Awaited<ReturnType<typeof generateText>>)
 
     const client = new HeadlessLLMClientImpl({
@@ -284,14 +524,14 @@ describe('HeadlessLLMClientImpl', () => {
         apiKey: 'sk-test',
         baseUrl: 'https://agent.cam01.cn',
         authStyle: 'bearer',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
     const text = await client.query({
       systemPrompt: 'system instructions',
-      userMessage: 'user message',
+      userMessage: 'user message'
     })
 
     expect(text).toBe('{"memories":[]}')
@@ -299,57 +539,58 @@ describe('HeadlessLLMClientImpl', () => {
   })
 
   it('uses OpenAI responses output_text raw response JSON when parsed text is empty', async () => {
-    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
     const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
     const openaiProvider = Object.assign(vi.fn(), {
-      chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(() => openaiResponsesModel),
+      chat: vi.fn(),
+      responses: vi.fn(() => openaiResponsesModel)
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
-    mockedGenerateText
-      .mockResolvedValueOnce({ text: '', finishReason: 'stop', content: [] } as Awaited<ReturnType<typeof generateText>>)
-      .mockResolvedValueOnce({
-        text: '',
-        finishReason: 'stop',
-        content: [],
-        response: {
-          body: {
-            id: 'resp-1',
-            model: 'gpt-5.4-mini',
-            output_text: '```json\n{"memories":[]}\n```',
-          },
-        },
-      } as unknown as Awaited<ReturnType<typeof generateText>>)
+    mockedGenerateText.mockResolvedValueOnce({
+      text: '',
+      finishReason: 'stop',
+      content: [],
+      response: {
+        body: {
+          id: 'resp-1',
+          model: 'gpt-5.4-mini',
+          output_text: '```json\n{"memories":[]}\n```'
+        }
+      }
+    } as unknown as Awaited<ReturnType<typeof generateText>>)
 
     const client = new HeadlessLLMClientImpl({
       resolveAuth: async () => ({
         protocol: 'openai',
         apiKey: 'sk-test',
-        baseUrl: 'https://agent.cam01.cn',
+        baseUrl: 'https://api.openai.com',
         authStyle: 'bearer',
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5.4-mini'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
     const text = await client.query({
       systemPrompt: 'system instructions',
-      userMessage: 'user message',
+      userMessage: 'user message'
     })
 
     expect(text).toBe('```json\n{"memories":[]}\n```')
+    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(openaiProvider.chat).not.toHaveBeenCalled()
   })
 
   it('uses OpenAI responses nested output content raw response JSON when parsed text is empty', async () => {
-    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
-    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4' }
+    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4' }
     const openaiProvider = Object.assign(vi.fn(), {
       chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(() => openaiResponsesModel),
+      responses: vi.fn(() => openaiResponsesModel)
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
     mockedGenerateText
-      .mockResolvedValueOnce({ text: '', finishReason: 'stop', content: [] } as Awaited<ReturnType<typeof generateText>>)
+      .mockResolvedValueOnce({ text: '', finishReason: 'stop', content: [] } as Awaited<
+        ReturnType<typeof generateText>
+      >)
       .mockResolvedValueOnce({
         text: '',
         finishReason: 'stop',
@@ -357,51 +598,53 @@ describe('HeadlessLLMClientImpl', () => {
         response: {
           body: {
             id: 'resp-2',
-            model: 'gpt-5.4-mini',
+            model: 'gpt-5.4',
             output: [
               {
                 type: 'message',
                 content: [
                   {
                     type: 'output_text',
-                    text: '{"memories":[]}',
-                  },
-                ],
-              },
-            ],
-          },
-        },
+                    text: '{"memories":[]}'
+                  }
+                ]
+              }
+            ]
+          }
+        }
       } as unknown as Awaited<ReturnType<typeof generateText>>)
 
     const client = new HeadlessLLMClientImpl({
       resolveAuth: async () => ({
         protocol: 'openai',
         apiKey: 'sk-test',
-        baseUrl: 'https://agent.cam01.cn',
+        baseUrl: 'https://api.openai.com',
         authStyle: 'bearer',
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5.4'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
     const text = await client.query({
       systemPrompt: 'system instructions',
-      userMessage: 'user message',
+      userMessage: 'user message'
     })
 
     expect(text).toBe('{"memories":[]}')
   })
 
   it('throws a clear error when gpt-5 responses fallback also returns empty text', async () => {
-    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4-mini' }
-    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4-mini' }
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-5.4' }
+    const openaiResponsesModel = { provider: 'openai.responses', modelId: 'gpt-5.4' }
     const openaiProvider = Object.assign(vi.fn(), {
       chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(() => openaiResponsesModel),
+      responses: vi.fn(() => openaiResponsesModel)
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
     mockedGenerateText
-      .mockResolvedValueOnce({ text: '', finishReason: 'stop', content: [] } as Awaited<ReturnType<typeof generateText>>)
+      .mockResolvedValueOnce({ text: '', finishReason: 'stop', content: [] } as Awaited<
+        ReturnType<typeof generateText>
+      >)
       .mockResolvedValueOnce({
         text: '   ',
         finishReason: 'stop',
@@ -409,27 +652,29 @@ describe('HeadlessLLMClientImpl', () => {
         response: {
           body: {
             id: 'resp-empty',
-            model: 'gpt-5.4-mini',
-            output_text: 'plain text that is not valid JSON ' + 'x'.repeat(500),
-          },
-        },
+            model: 'gpt-5.4',
+            output_text: 'plain text that is not valid JSON ' + 'x'.repeat(500)
+          }
+        }
       } as unknown as Awaited<ReturnType<typeof generateText>>)
 
     const client = new HeadlessLLMClientImpl({
       resolveAuth: async () => ({
         protocol: 'openai',
         apiKey: 'sk-test-secret',
-        baseUrl: 'https://agent.cam01.cn',
+        baseUrl: 'https://api.openai.com',
         authStyle: 'bearer',
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5.4'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
-    await expect(client.query({
-      systemPrompt: 'system instructions',
-      userMessage: 'private prompt phrase',
-    })).rejects.toThrow('HeadlessLLMClient received empty text from model "gpt-5.4-mini"')
+    await expect(
+      client.query({
+        systemPrompt: 'system instructions',
+        userMessage: 'private prompt phrase'
+      })
+    ).rejects.toThrow('HeadlessLLMClient received empty text from model "gpt-5.4"')
 
     const debugPayload = JSON.stringify(logger.debug.mock.calls)
     expect(debugPayload).not.toContain('sk-test-secret')
@@ -438,14 +683,14 @@ describe('HeadlessLLMClientImpl', () => {
     expect(debugPayload).not.toContain('plain text that is not valid JSON')
     expect(logger.warn).not.toHaveBeenCalled()
     expect(logger.error).not.toHaveBeenCalled()
-    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(openaiProvider.responses).toHaveBeenCalledWith('gpt-5.4')
   })
 
   it('logs raw response shape without leaking choice text', async () => {
-    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-4o-mini' }
+    const openaiChatModel = { provider: 'openai.chat', modelId: 'gpt-4o' }
     const openaiProvider = Object.assign(vi.fn(), {
       chat: vi.fn(() => openaiChatModel),
-      responses: vi.fn(),
+      responses: vi.fn()
     })
     mockedCreateOpenAI.mockReturnValue(openaiProvider as unknown as ReturnType<typeof createOpenAI>)
     mockedGenerateText.mockResolvedValueOnce({
@@ -456,15 +701,15 @@ describe('HeadlessLLMClientImpl', () => {
       response: {
         body: {
           id: 'chatcmpl-empty',
-          model: 'gpt-4o-mini',
+          model: 'gpt-4o',
           usage: {
             prompt_tokens: 10,
             completion_tokens: 3,
             completion_tokens_details: {
               reasoning_tokens: 1,
               accepted_prediction_tokens: 2,
-              rejected_prediction_tokens: 0,
-            },
+              rejected_prediction_tokens: 0
+            }
           },
           choices: [
             {
@@ -479,19 +724,19 @@ describe('HeadlessLLMClientImpl', () => {
                     type: 'function',
                     function: {
                       name: 'extract_memory',
-                      arguments: '{"secret":"memory content"}',
-                    },
-                  },
-                ],
+                      arguments: '{"secret":"memory content"}'
+                    }
+                  }
+                ]
               },
               logprobs: {
                 content: [{ token: 'secret-token' }],
-                refusal: [{ token: 'refusal-token' }],
-              },
-            },
-          ],
-        },
-      },
+                refusal: [{ token: 'refusal-token' }]
+              }
+            }
+          ]
+        }
+      }
     } as unknown as Awaited<ReturnType<typeof generateText>>)
 
     const client = new HeadlessLLMClientImpl({
@@ -500,15 +745,17 @@ describe('HeadlessLLMClientImpl', () => {
         apiKey: 'sk-test',
         baseUrl: 'https://agent.cam01.cn',
         authStyle: 'bearer',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
-    await expect(client.query({
-      systemPrompt: 'system instructions',
-      userMessage: 'user message',
-    })).rejects.toThrow('HeadlessLLMClient received empty text from model "gpt-4o-mini"')
+    await expect(
+      client.query({
+        systemPrompt: 'system instructions',
+        userMessage: 'user message'
+      })
+    ).rejects.toThrow('HeadlessLLMClient received empty text from model "gpt-4o"')
 
     const debugPayload = JSON.stringify(logger.debug.mock.calls)
     expect(debugPayload).toContain('choiceSummaries')
@@ -524,7 +771,9 @@ describe('HeadlessLLMClientImpl', () => {
   it('keeps Anthropic provider behavior and passes system prompt to generateText', async () => {
     const anthropicModel = { provider: 'anthropic', modelId: 'claude-sonnet' }
     const anthropicProvider = vi.fn(() => anthropicModel)
-    mockedCreateAnthropic.mockReturnValue(anthropicProvider as unknown as ReturnType<typeof createAnthropic>)
+    mockedCreateAnthropic.mockReturnValue(
+      anthropicProvider as unknown as ReturnType<typeof createAnthropic>
+    )
 
     const client = new HeadlessLLMClientImpl({
       resolveAuth: async () => ({
@@ -532,28 +781,30 @@ describe('HeadlessLLMClientImpl', () => {
         apiKey: 'anthropic-test',
         baseUrl: 'https://api.anthropic.com',
         authStyle: 'x-api-key',
-        model: 'claude-sonnet',
+        model: 'claude-sonnet'
       }),
-      getFetch: () => fetch,
+      getFetch: () => fetch
     })
 
     const text = await client.query({
       systemPrompt: 'system instructions',
-      userMessage: 'user message',
+      userMessage: 'user message'
     })
 
     expect(text).toBe('ok')
     expect(mockedCreateAnthropic).toHaveBeenCalledWith({
       apiKey: 'anthropic-test',
       baseURL: 'https://api.anthropic.com/v1',
-      fetch,
+      fetch
     })
     expect(anthropicProvider).toHaveBeenCalledWith('claude-sonnet')
-    expect(mockedGenerateText).toHaveBeenCalledWith(expect.objectContaining({
-      model: anthropicModel,
-      system: 'system instructions',
-      prompt: 'user message',
-      maxOutputTokens: 4096,
-    }))
+    expect(mockedGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: anthropicModel,
+        system: 'system instructions',
+        prompt: 'user message',
+        maxOutputTokens: 4096
+      })
+    )
   })
 })

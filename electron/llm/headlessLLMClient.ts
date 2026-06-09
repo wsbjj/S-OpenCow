@@ -14,7 +14,12 @@ import { generateText } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createLogger } from '../platform/logger'
-import type { LLMAuthConfig, HeadlessLLMClient, HeadlessQueryParams, HeadlessClientDeps } from './types'
+import type {
+  LLMAuthConfig,
+  HeadlessLLMClient,
+  HeadlessQueryParams,
+  HeadlessClientDeps
+} from './types'
 import { toApiErrorLogContext } from './apiErrorLogContext'
 
 const log = createLogger('HeadlessLLMClient')
@@ -29,6 +34,7 @@ type TextCandidate = {
   source: string
   text: string
 }
+type OpenAIProvider = ReturnType<typeof createOpenAI>
 
 export class HeadlessLLMClientImpl implements HeadlessLLMClient {
   private readonly deps: HeadlessClientDeps
@@ -47,7 +53,7 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
       protocol: auth.protocol,
       model: auth.model,
       baseUrl: auth.baseUrl,
-      authStyle: auth.authStyle,
+      authStyle: auth.authStyle
     })
 
     try {
@@ -59,19 +65,23 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
         this.createAnthropicModel(auth, fetchFn),
         params,
         maxTokens,
-        timeoutMs,
+        timeoutMs
       )
       return this.requireNonEmptyText(result, auth, 'messages')
     } catch (err) {
       if (this.isEmptyTextError(err)) {
         throw err
       }
-      log.error('HeadlessLLMClient query failed', {
-        protocol: auth.protocol,
-        model: auth.model,
-        baseUrl: auth.baseUrl,
-        ...toApiErrorLogContext(err),
-      }, err)
+      log.error(
+        'HeadlessLLMClient query failed',
+        {
+          protocol: auth.protocol,
+          model: auth.model,
+          baseUrl: auth.baseUrl,
+          ...toApiErrorLogContext(err)
+        },
+        err
+      )
       throw err
     }
   }
@@ -82,13 +92,14 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
    * - Anthropic: apiKey → x-api-key header; authToken → Authorization: Bearer
    * - OpenAI: apiKey → Authorization: Bearer
    */
-  private createAnthropicModel(auth: LLMAuthConfig, fetchFn: typeof globalThis.fetch): GenerateTextOptions['model'] {
+  private createAnthropicModel(
+    auth: LLMAuthConfig,
+    fetchFn: typeof globalThis.fetch
+  ): GenerateTextOptions['model'] {
     const provider = createAnthropic({
-      ...(auth.authStyle === 'x-api-key'
-        ? { apiKey: auth.apiKey }
-        : { authToken: auth.apiKey }),
+      ...(auth.authStyle === 'x-api-key' ? { apiKey: auth.apiKey } : { authToken: auth.apiKey }),
       baseURL: this.normalizeBaseURL(auth.baseUrl),
-      fetch: fetchFn,
+      fetch: fetchFn
     })
     return provider(auth.model)
   }
@@ -98,14 +109,28 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
     fetchFn: typeof globalThis.fetch,
     params: HeadlessQueryParams,
     maxTokens: number,
-    timeoutMs: number,
+    timeoutMs: number
   ): Promise<string> {
     const provider = this.createOpenAIProvider(auth, fetchFn)
+    if (this.shouldPreferResponsesFirst(auth)) {
+      return this.queryOpenAIResponsesFirst(auth, provider, params, maxTokens, timeoutMs)
+    }
+
+    return this.queryOpenAIChatFirst(auth, provider, params, maxTokens, timeoutMs)
+  }
+
+  private async queryOpenAIChatFirst(
+    auth: LLMAuthConfig,
+    provider: OpenAIProvider,
+    params: HeadlessQueryParams,
+    maxTokens: number,
+    timeoutMs: number
+  ): Promise<string> {
     const chatResult = await this.generateWithModel(
       provider.chat(auth.model),
       params,
       maxTokens,
-      timeoutMs,
+      timeoutMs
     )
 
     const chatText = this.extractNonEmptyText(chatResult)
@@ -120,43 +145,103 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
     // Chat Completions remains the default. Retry through Responses only for
     // GPT-5-family models that returned a successful but empty chat response.
     this.logEmptyTextResult(auth, 'chat/completions', chatResult)
-    const responsesResult = await this.generateWithModel(
-      provider.responses(auth.model),
+    const responsesResult = await this.generateWithOpenAIResponses(
+      auth,
+      provider,
       params,
       maxTokens,
-      timeoutMs,
-      {
-        openai: {
-          instructions: params.systemPrompt,
-          systemMessageMode: 'remove',
-        },
-      },
+      timeoutMs
     )
     return this.requireNonEmptyText(responsesResult, auth, 'responses')
   }
 
-  private createOpenAIProvider(auth: LLMAuthConfig, fetchFn: typeof globalThis.fetch): ReturnType<typeof createOpenAI> {
+  private async queryOpenAIResponsesFirst(
+    auth: LLMAuthConfig,
+    provider: OpenAIProvider,
+    params: HeadlessQueryParams,
+    maxTokens: number,
+    timeoutMs: number
+  ): Promise<string> {
+    try {
+      const responsesResult = await this.generateWithOpenAIResponses(
+        auth,
+        provider,
+        params,
+        maxTokens,
+        timeoutMs
+      )
+      const responsesText = this.extractNonEmptyText(responsesResult)
+      if (responsesText) {
+        return responsesText
+      }
+      this.logEmptyTextResult(auth, 'responses', responsesResult)
+    } catch (err) {
+      if (!this.isResponsesCompatibilityError(err)) {
+        throw err
+      }
+      log.debug('HeadlessLLMClient falling back from responses to chat completions', {
+        protocol: auth.protocol,
+        model: auth.model,
+        baseUrl: auth.baseUrl,
+        ...toApiErrorLogContext(err)
+      })
+    }
+
+    const chatResult = await this.generateWithModel(
+      provider.chat(auth.model),
+      params,
+      maxTokens,
+      timeoutMs
+    )
+    return this.requireNonEmptyText(chatResult, auth, 'chat/completions')
+  }
+
+  private createOpenAIProvider(
+    auth: LLMAuthConfig,
+    fetchFn: typeof globalThis.fetch
+  ): OpenAIProvider {
     return createOpenAI({
       apiKey: auth.apiKey,
       baseURL: this.normalizeBaseURL(auth.baseUrl),
-      fetch: fetchFn,
+      fetch: fetchFn
     })
+  }
+
+  private generateWithOpenAIResponses(
+    auth: LLMAuthConfig,
+    provider: OpenAIProvider,
+    params: HeadlessQueryParams,
+    maxTokens: number,
+    timeoutMs: number
+  ): Promise<GenerateTextResult> {
+    return this.generateWithModel(
+      provider.responses(auth.model),
+      params,
+      this.shouldPassMaxOutputTokensToResponses(auth) ? maxTokens : undefined,
+      timeoutMs,
+      {
+        openai: {
+          instructions: params.systemPrompt,
+          systemMessageMode: 'remove'
+        }
+      }
+    )
   }
 
   private async generateWithModel(
     model: GenerateTextOptions['model'],
     params: HeadlessQueryParams,
-    maxTokens: number,
+    maxTokens: number | undefined,
     timeoutMs: number,
-    providerOptions?: GenerateTextOptions['providerOptions'],
+    providerOptions?: GenerateTextOptions['providerOptions']
   ): Promise<GenerateTextResult> {
     return generateText({
       model,
       system: params.systemPrompt,
       prompt: params.userMessage,
-      maxOutputTokens: maxTokens,
+      ...(typeof maxTokens === 'number' ? { maxOutputTokens: maxTokens } : {}),
       abortSignal: AbortSignal.timeout(timeoutMs),
-      providerOptions,
+      ...(providerOptions ? { providerOptions } : {})
     })
   }
 
@@ -169,7 +254,53 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
     return auth.protocol === 'openai' && auth.model.toLowerCase().startsWith('gpt-5')
   }
 
-  private requireNonEmptyText(result: GenerateTextResult, auth: LLMAuthConfig, apiPath: string): string {
+  private shouldPreferResponsesFirst(auth: LLMAuthConfig): boolean {
+    return auth.protocol === 'openai' && this.isSmallOpenAIModel(auth.model)
+  }
+
+  private isSmallOpenAIModel(model: string): boolean {
+    return /(?:^|[-_.:/])(mini|nano|small)(?:$|[-_.:/])/i.test(model)
+  }
+
+  private shouldPassMaxOutputTokensToResponses(auth: LLMAuthConfig): boolean {
+    try {
+      return (
+        new URL(this.normalizeBaseURL(auth.baseUrl)).hostname.toLowerCase() === 'api.openai.com'
+      )
+    } catch {
+      return false
+    }
+  }
+
+  private isResponsesCompatibilityError(err: unknown): boolean {
+    const record = this.asRecord(err)
+    if (!record) return false
+
+    const url = this.stringField(record.url) ?? ''
+    const statusCode = this.numberField(record.statusCode)
+    const message = this.stringField(record.message) ?? ''
+    const responseBody = this.stringField(record.responseBody) ?? ''
+    const text = `${message}\n${responseBody}`.toLowerCase()
+
+    if (!url.includes('/responses')) return false
+    if (statusCode === 405 || statusCode === 501) return true
+    if (statusCode !== 400) return false
+
+    return (
+      text.includes('unsupported parameter') ||
+      text.includes('unknown parameter') ||
+      text.includes('unrecognized parameter') ||
+      text.includes('unsupported api') ||
+      text.includes('unsupported endpoint') ||
+      text.includes('invalid endpoint')
+    )
+  }
+
+  private requireNonEmptyText(
+    result: GenerateTextResult,
+    auth: LLMAuthConfig,
+    apiPath: string
+  ): string {
     const text = this.extractNonEmptyText(result)
     if (text) {
       return text
@@ -180,7 +311,9 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
   }
 
   private createEmptyTextError(auth: LLMAuthConfig, apiPath: string, cause?: unknown): Error {
-    const err = new Error(`HeadlessLLMClient received empty text from model "${auth.model}" via ${apiPath}`)
+    const err = new Error(
+      `HeadlessLLMClient received empty text from model "${auth.model}" via ${apiPath}`
+    )
     err.name = 'HeadlessEmptyTextError'
     if (cause !== undefined) {
       const errWithCause = err as Error & { cause?: unknown }
@@ -192,7 +325,9 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
   private isEmptyTextError(err: unknown): boolean {
     if (err instanceof Error && err.name === 'HeadlessEmptyTextError') return true
     const message = err instanceof Error ? err.message.toLowerCase() : ''
-    return message.includes('headlessllmclient') && message.includes('empty') && message.includes('text')
+    return (
+      message.includes('headlessllmclient') && message.includes('empty') && message.includes('text')
+    )
   }
 
   private extractNonEmptyText(result: GenerateTextResult): string | null {
@@ -242,8 +377,16 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
     choices.forEach((choice, index) => {
       const choiceRecord = this.asRecord(choice)
       const message = this.asRecord(choiceRecord?.message)
-      this.addStringCandidate(candidates, `response.choices[${index}].message.content`, message?.content)
-      this.addTextCandidatesFromValue(candidates, `response.choices[${index}].message.content`, message?.content)
+      this.addStringCandidate(
+        candidates,
+        `response.choices[${index}].message.content`,
+        message?.content
+      )
+      this.addTextCandidatesFromValue(
+        candidates,
+        `response.choices[${index}].message.content`,
+        message?.content
+      )
     })
 
     const output = Array.isArray(root.output) ? root.output : []
@@ -257,7 +400,7 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
         this.addStringCandidate(
           candidates,
           `response.output[${outputIndex}].content[${contentIndex}].text`,
-          partRecord?.text,
+          partRecord?.text
         )
       })
     })
@@ -271,7 +414,11 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
     }
   }
 
-  private addTextCandidatesFromValue(candidates: TextCandidate[], source: string, value: unknown): void {
+  private addTextCandidatesFromValue(
+    candidates: TextCandidate[],
+    source: string,
+    value: unknown
+  ): void {
     if (!Array.isArray(value)) return
 
     value.forEach((part, index) => {
@@ -295,7 +442,11 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
     return !text || text.trim().length === 0
   }
 
-  private logEmptyTextResult(auth: LLMAuthConfig, apiPath: string, result: GenerateTextResult): void {
+  private logEmptyTextResult(
+    auth: LLMAuthConfig,
+    apiPath: string,
+    result: GenerateTextResult
+  ): void {
     log.debug('HeadlessLLMClient received empty text', {
       protocol: auth.protocol,
       model: auth.model,
@@ -306,7 +457,7 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
       contentTypes: this.getContentTypes(result.content),
       rawResponse: this.summarizeRawResponseBody(result.response?.body),
       usage: result.usage,
-      totalUsage: result.totalUsage,
+      totalUsage: result.totalUsage
     })
   }
 
@@ -323,15 +474,17 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
       id: typeof root.id === 'string' ? root.id : undefined,
       model: typeof root.model === 'string' ? root.model : undefined,
       choicesCount: choices.length,
-      choiceSummaries: choices.slice(0, 3).map((choice, index) => this.summarizeChoice(choice, index)),
+      choiceSummaries: choices
+        .slice(0, 3)
+        .map((choice, index) => this.summarizeChoice(choice, index)),
       outputCount: output.length,
       outputTypes: this.uniqueStrings(output.map((item) => this.asRecord(item)?.type)),
       rawUsage: this.summarizeRawUsage(root.usage),
       textCandidates: candidates.map((candidate) => ({
         source: candidate.source,
         length: candidate.text.length,
-        jsonLike: this.isJsonLikeText(candidate.text),
-      })),
+        jsonLike: this.isJsonLikeText(candidate.text)
+      }))
     }
   }
 
@@ -358,7 +511,7 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
         ? {
             deltaKeys: Object.keys(delta).slice(0, 20),
             contentShape: this.summarizeValueShape(delta.content),
-            refusalShape: this.summarizeValueShape(delta.refusal),
+            refusalShape: this.summarizeValueShape(delta.refusal)
           }
         : undefined,
       extraKnownFieldShapes: {
@@ -366,8 +519,8 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
         reasoning: this.summarizeValueShape(message?.reasoning),
         reasoningDetails: this.summarizeValueShape(message?.reasoning_details),
         parsed: this.summarizeValueShape(message?.parsed),
-        audio: this.summarizeValueShape(message?.audio),
-      },
+        audio: this.summarizeValueShape(message?.audio)
+      }
     }
   }
 
@@ -381,7 +534,7 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
       hasId: typeof record?.id === 'string' && record.id.length > 0,
       functionName: this.stringField(fn?.name),
       argumentsLength: typeof args === 'string' ? args.length : undefined,
-      argumentsJsonLike: typeof args === 'string' ? this.isJsonLikeText(args) : undefined,
+      argumentsJsonLike: typeof args === 'string' ? this.isJsonLikeText(args) : undefined
     }
   }
 
@@ -393,7 +546,7 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
     return {
       name: this.stringField(record.name),
       argumentsLength: typeof args === 'string' ? args.length : undefined,
-      argumentsJsonLike: typeof args === 'string' ? this.isJsonLikeText(args) : undefined,
+      argumentsJsonLike: typeof args === 'string' ? this.isJsonLikeText(args) : undefined
     }
   }
 
@@ -403,7 +556,7 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
 
     return {
       contentCount: Array.isArray(record.content) ? record.content.length : undefined,
-      refusalCount: Array.isArray(record.refusal) ? record.refusal.length : undefined,
+      refusalCount: Array.isArray(record.refusal) ? record.refusal.length : undefined
     }
   }
 
@@ -416,10 +569,12 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
     return {
       promptTokens: this.numberField(record.prompt_tokens ?? record.input_tokens),
       completionTokens: this.numberField(record.completion_tokens ?? record.output_tokens),
-      reasoningTokens: this.numberField(completionDetails?.reasoning_tokens ?? outputDetails?.reasoning_tokens),
+      reasoningTokens: this.numberField(
+        completionDetails?.reasoning_tokens ?? outputDetails?.reasoning_tokens
+      ),
       textTokensFromRaw: this.numberField(outputDetails?.text_tokens),
       acceptedPredictionTokens: this.numberField(completionDetails?.accepted_prediction_tokens),
-      rejectedPredictionTokens: this.numberField(completionDetails?.rejected_prediction_tokens),
+      rejectedPredictionTokens: this.numberField(completionDetails?.rejected_prediction_tokens)
     }
   }
 
@@ -429,7 +584,7 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
         type: 'string',
         length: value.length,
         blank: this.isBlank(value),
-        jsonLike: this.isJsonLikeText(value),
+        jsonLike: this.isJsonLikeText(value)
       }
     }
     if (Array.isArray(value)) {
@@ -441,14 +596,14 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
           .slice(0, 3)
           .map((item) => this.asRecord(item))
           .filter((item): item is UnknownRecord => item !== null)
-          .map((item) => Object.keys(item).slice(0, 20)),
+          .map((item) => Object.keys(item).slice(0, 20))
       }
     }
     const record = this.asRecord(value)
     if (record) {
       return {
         type: 'object',
-        keys: Object.keys(record).slice(0, 20),
+        keys: Object.keys(record).slice(0, 20)
       }
     }
     return { type: value === null ? 'null' : typeof value }
@@ -474,6 +629,6 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
   }
 
   private asRecord(value: unknown): UnknownRecord | null {
-    return typeof value === 'object' && value !== null ? value as UnknownRecord : null
+    return typeof value === 'object' && value !== null ? (value as UnknownRecord) : null
   }
 }
