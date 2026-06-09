@@ -3,15 +3,17 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
-const SCRIPT_VERSION = 1
+const SCRIPT_VERSION = 2
 const MODULES = ['better-sqlite3', 'node-pty']
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const projectDir = path.resolve(scriptDir, '..')
 const nodeModulesDir = path.join(projectDir, 'node_modules')
 const stampPath = path.join(nodeModulesDir, '.cache', 'opencow', 'electron-native-rebuild.json')
 const force = process.argv.includes('--force') || process.env.OPENCOW_FORCE_NATIVE_REBUILD === '1'
+const require = createRequire(import.meta.url)
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'))
@@ -103,6 +105,48 @@ function betterSqliteMatchesElectronAbi(expected) {
   return meta === `${expected.arch}--${expected.electronAbi}`
 }
 
+function getElectronExecutablePath() {
+  const electronPath = require('electron')
+
+  if (typeof electronPath !== 'string' || electronPath.length === 0) {
+    throw new Error('Unable to resolve Electron executable path')
+  }
+
+  return electronPath
+}
+
+function electronNativeModulesLoad() {
+  const smokeTest = `
+const Database = require('better-sqlite3')
+const db = new Database(':memory:')
+db.prepare('select 1').get()
+db.close()
+const pty = require('node-pty')
+if (typeof pty.spawn !== 'function') {
+  throw new Error('node-pty did not expose spawn()')
+}
+`
+  const result = spawnSync(getElectronExecutablePath(), ['-e', smokeTest], {
+    cwd: projectDir,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1'
+    }
+  })
+
+  if (result.error) {
+    throw result.error
+  }
+
+  if (result.status === 0) {
+    return { ok: true, message: '' }
+  }
+
+  const message = `${result.stderr || result.stdout || `exit ${result.status}`}`.trim()
+  return { ok: false, message }
+}
+
 function rebuildNativeModules() {
   const command = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'pnpm'
   const args =
@@ -147,6 +191,11 @@ function explainReason(expected) {
     return 'Electron/native dependency versions changed'
   }
 
+  const smokeResult = electronNativeModulesLoad()
+  if (!smokeResult.ok) {
+    return `native binaries fail to load in Electron: ${smokeResult.message.split(/\r?\n/)[0]}`
+  }
+
   return ''
 }
 
@@ -169,6 +218,11 @@ if (!nativeFilesPresent()) {
 
 if (!betterSqliteMatchesElectronAbi(expectedState)) {
   throw new Error(`better-sqlite3 did not rebuild for Electron ABI ${expectedState.electronAbi}`)
+}
+
+const smokeResult = electronNativeModulesLoad()
+if (!smokeResult.ok) {
+  throw new Error(`native rebuild finished, but Electron still cannot load native modules:\n${smokeResult.message}`)
 }
 
 writeStamp(expectedState)
