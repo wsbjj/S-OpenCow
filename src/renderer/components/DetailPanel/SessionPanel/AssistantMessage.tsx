@@ -78,6 +78,16 @@ function extractAssistantText(blocks: readonly ContentBlock[]): string {
     .join('\n')
 }
 
+function AssistantMessageActions({ text }: { text: string }): React.JSX.Element | null {
+  if (!text.trim()) return null
+
+  return (
+    <div className="mt-1 flex h-7 items-center justify-start">
+      <MessageCopyButton ariaLabel="Copy assistant message" text={text} />
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -200,8 +210,8 @@ export const AssistantMessage = memo(function AssistantMessage({
               activeToolUseId={activeToolUseId}
             />
           ))}
+          <AssistantMessageActions text={copyText} />
         </div>
-        <MessageCopyButton ariaLabel="Copy assistant message" text={copyText} />
       </div>
     )
   }
@@ -265,8 +275,8 @@ export const AssistantMessage = memo(function AssistantMessage({
             </div>
           )
         })}
+        <AssistantMessageActions text={copyText} />
       </div>
-      <MessageCopyButton ariaLabel="Copy assistant message" text={copyText} />
     </div>
   )
 })

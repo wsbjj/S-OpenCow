@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ManagedSessionMessageTable, ManagedSessionTable } from '../../database/types'
+import type { ManagedSessionMessageItemTable, ManagedSessionTable } from '../../database/types'
 import type {
   AIEngineKind,
+  ContentBlock,
   ManagedSessionInfo,
   ManagedSessionMessage,
   SessionExecutionContext,
@@ -10,6 +11,7 @@ import type {
 } from '../../../src/shared/types'
 
 const DEFAULT_ENGINE_KIND: AIEngineKind = 'claude'
+const SUMMARY_LIMIT = 80
 
 function normalizeEngineKind(raw: string): AIEngineKind {
   return raw === 'codex' ? 'codex' : DEFAULT_ENGINE_KIND
@@ -48,6 +50,85 @@ function parseMessages(raw: string): ManagedSessionMessage[] {
   } catch {
     return []
   }
+}
+
+function stringifySearchValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value == null) return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function extractBlockSearchText(block: ContentBlock): string {
+  switch (block.type) {
+    case 'text':
+      return block.text
+    case 'slash_command':
+      return [`/${block.label}`, block.expandedText].filter(Boolean).join(' ')
+    case 'tool_use':
+      return [block.name, stringifySearchValue(block.input), block.progress ?? '']
+        .filter(Boolean)
+        .join(' ')
+    case 'tool_result':
+      return stringifySearchValue(block.content)
+    case 'thinking':
+      return block.thinking
+    case 'document':
+      return block.title
+    case 'image':
+      return ''
+  }
+}
+
+export function messageToSearchText(message: ManagedSessionMessage): string {
+  if (message.role === 'system') return stringifySearchValue(message.event)
+  return message.content.map(extractBlockSearchText).filter(Boolean).join(' ').trim()
+}
+
+export function firstUserMessageSummary(messages: ManagedSessionMessage[]): string | null {
+  const firstUser = messages.find((message) => message.role === 'user')
+  if (!firstUser) return null
+
+  const text = messageToSearchText(firstUser)
+  if (text.length > 0) {
+    return text.length > SUMMARY_LIMIT ? `${text.slice(0, SUMMARY_LIMIT)}…` : text
+  }
+
+  return firstUser.content.some((block) => block.type === 'image') ? '(image)' : null
+}
+
+export function managedSessionInfoToMessageItemRows(
+  session: ManagedSessionInfo,
+): ManagedSessionMessageItemTable[] {
+  let turnIndex = -1
+  return session.messages.map((message, ordinal) => {
+    if (message.role === 'user') turnIndex += 1
+    return {
+      session_id: session.id,
+      ordinal,
+      message_id: message.id,
+      turn_index: Math.max(turnIndex, 0),
+      role: message.role,
+      timestamp: message.timestamp,
+      content_json: JSON.stringify(message),
+      text_content: messageToSearchText(message),
+    }
+  })
+}
+
+export function messageItemRowToMessage(row: Pick<ManagedSessionMessageItemTable, 'content_json'>): ManagedSessionMessage | null {
+  try {
+    const parsed = JSON.parse(row.content_json) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as ManagedSessionMessage
+    }
+  } catch {
+    // ignored — caller filters corrupt rows
+  }
+  return null
 }
 
 function rowToOrigin(source: string, id: string | null, extra: string | null): SessionOrigin {
@@ -175,6 +256,8 @@ export function managedSessionRowToInfo(
     desiredEngineKind: row.desired_engine_kind ? normalizeEngineKind(row.desired_engine_kind) : null,
     desiredModel: row.desired_model,
     model: row.model,
+    messageCount: row.message_count,
+    firstUserSummary: row.first_user_summary,
     messages: parseMessages(messagesJson),
     createdAt: row.created_at,
     lastActivity: row.last_activity,
@@ -192,15 +275,6 @@ export function managedSessionRowToInfo(
     executionContext: row.execution_context
       ? (JSON.parse(row.execution_context) as SessionExecutionContext)
       : null,
-  }
-}
-
-export function managedSessionInfoToMessagesRow(
-  session: ManagedSessionInfo,
-): ManagedSessionMessageTable {
-  return {
-    session_id: session.id,
-    messages: JSON.stringify(session.messages),
   }
 }
 
@@ -224,6 +298,8 @@ export function managedSessionInfoToRow(session: ManagedSessionInfo): ManagedSes
     desired_engine_kind: session.desiredEngineKind ?? null,
     desired_model: session.desiredModel ?? null,
     model: session.model,
+    message_count: session.messages.length,
+    first_user_summary: firstUserMessageSummary(session.messages),
     created_at: session.createdAt,
     last_activity: session.lastActivity,
     active_duration_ms: session.activeDurationMs,

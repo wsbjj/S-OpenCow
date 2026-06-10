@@ -5,9 +5,22 @@ import { useCommandStore, selectLatestOpenTodos } from '../../../src/renderer/st
 import { makeManagedSession } from '../../helpers'
 import type { ManagedSessionMessage } from '../../../src/shared/types'
 
+const apiMock = vi.hoisted(() => ({
+  getSessionMessages: vi.fn(),
+  getSessionMessagePage: vi.fn(),
+}))
+
 vi.mock('@/windowAPI', () => ({
-  getAppAPI: () => new Proxy({}, {
-    get: () => vi.fn().mockResolvedValue(null),
+  getAppAPI: () => ({
+    'command:get-session-messages': apiMock.getSessionMessages,
+    'command:get-session-message-page': apiMock.getSessionMessagePage,
+    'command:get-managed-session': vi.fn().mockResolvedValue(null),
+    'command:delete-session': vi.fn().mockResolvedValue(true),
+    'command:start-session': vi.fn().mockResolvedValue('session-new'),
+    'command:send-message': vi.fn().mockResolvedValue(true),
+    'command:resume-session': vi.fn().mockResolvedValue(true),
+    'command:stop-session': vi.fn().mockResolvedValue(true),
+    'command:set-session-model': vi.fn().mockResolvedValue(true),
   }),
 }))
 
@@ -29,7 +42,59 @@ function makeAssistantMessage(params: {
 
 describe('commandStore.batchAppendSessionMessages', () => {
   beforeEach(() => {
+    apiMock.getSessionMessages.mockReset()
+    apiMock.getSessionMessages.mockResolvedValue([])
+    apiMock.getSessionMessagePage.mockReset()
+    apiMock.getSessionMessagePage.mockResolvedValue({
+      sessionId: 'session-page',
+      messages: [],
+      oldestOrdinal: null,
+      newestOrdinal: null,
+      totalCount: 0,
+      hasMoreBefore: false,
+    })
     useCommandStore.getState().reset()
+  })
+
+  it('loads the initial history window through page IPC instead of full messages IPC', async () => {
+    const sessionId = 'session-page'
+    const snapshot = makeManagedSession({
+      id: sessionId,
+      state: 'idle',
+      messages: [],
+    })
+    const pageMessages: ManagedSessionMessage[] = [
+      {
+        id: 'u-latest',
+        role: 'user',
+        content: [{ type: 'text', text: 'latest window' }],
+        timestamp: 1,
+      },
+    ]
+    apiMock.getSessionMessagePage.mockResolvedValueOnce({
+      sessionId,
+      messages: pageMessages,
+      oldestOrdinal: 42,
+      newestOrdinal: 42,
+      totalCount: 43,
+      hasMoreBefore: true,
+    })
+    useCommandStore.setState({
+      managedSessions: [snapshot],
+      sessionById: { [sessionId]: snapshot },
+    })
+
+    await useCommandStore.getState().ensureSessionMessages(sessionId)
+
+    expect(apiMock.getSessionMessagePage).toHaveBeenCalledWith(sessionId, { limit: 100 })
+    expect(apiMock.getSessionMessages).not.toHaveBeenCalled()
+    expect(useCommandStore.getState().sessionMessages[sessionId]).toEqual(pageMessages)
+    expect(useCommandStore.getState().sessionMessagePages[sessionId]).toMatchObject({
+      oldestOrdinal: 42,
+      newestOrdinal: 42,
+      totalCount: 43,
+      hasMoreBefore: true,
+    })
   })
 
   it('keeps non-overlay assistant updates in structural list when multiple assistant updates arrive in one batch', () => {

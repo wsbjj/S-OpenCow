@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Kysely } from 'kysely'
+import { sql } from 'kysely'
 import type { Database } from '../database/types'
-import type { ManagedSessionInfo, SessionSnapshot } from '../../src/shared/types'
+import type {
+  ManagedSessionInfo,
+  ManagedSessionMessage,
+  SessionMessagePage,
+  SessionMessagePageParams,
+  SessionMessageSearchMatch,
+  SessionSnapshot,
+} from '../../src/shared/types'
 import {
-  managedSessionInfoToMessagesRow,
+  managedSessionInfoToMessageItemRows,
   managedSessionInfoToRow,
+  messageItemRowToMessage,
   managedSessionRowToInfo,
 } from './mappers/managedSessionRowMapper'
 
@@ -24,6 +33,8 @@ const MANAGED_SESSION_COLUMNS = [
   'desired_engine_kind',
   'desired_model',
   'model',
+  'message_count',
+  'first_user_summary',
   'created_at',
   'last_activity',
   'active_duration_ms',
@@ -38,6 +49,29 @@ const MANAGED_SESSION_COLUMNS = [
 ] as const
 
 const FULL_SESSION_CACHE_LIMIT = 3
+const DEFAULT_MESSAGE_PAGE_LIMIT = 100
+const MAX_MESSAGE_PAGE_LIMIT = 500
+const MESSAGE_INSERT_CHUNK_SIZE = 200
+
+function clampPageLimit(limit: number | undefined, fallback = DEFAULT_MESSAGE_PAGE_LIMIT): number {
+  if (!Number.isFinite(limit ?? NaN)) return fallback
+  return Math.max(1, Math.min(MAX_MESSAGE_PAGE_LIMIT, Math.trunc(limit!)))
+}
+
+function sanitizeFTS5Token(token: string): string {
+  return token.replace(/[*+\-:.()]/g, '').trim()
+}
+
+function buildFTS5Query(query: string): string | null {
+  const tokens = query
+    .trim()
+    .split(/\s+/)
+    .map(sanitizeFTS5Token)
+    .filter((token) => token.length > 0)
+    .map((token) => `"${token.replace(/"/g, '""')}"`)
+
+  return tokens.length > 0 ? tokens.join(' AND ') : null
+}
 
 /**
  * Persists ManagedSessionInfo snapshots to SQLite so that
@@ -63,7 +97,7 @@ export class ManagedSessionStore {
 
   async save(session: ManagedSessionInfo): Promise<void> {
     const row = managedSessionInfoToRow(session)
-    const messagesRow = managedSessionInfoToMessagesRow(session)
+    const messageRows = managedSessionInfoToMessageItemRows(session)
 
     await this.db.transaction().execute(async (trx) => {
       await trx
@@ -84,6 +118,8 @@ export class ManagedSessionStore {
             desired_engine_kind: row.desired_engine_kind,
             desired_model: row.desired_model,
             model: row.model,
+            message_count: row.message_count,
+            first_user_summary: row.first_user_summary,
             created_at: row.created_at,
             last_activity: row.last_activity,
             active_duration_ms: row.active_duration_ms,
@@ -100,14 +136,16 @@ export class ManagedSessionStore {
         .execute()
 
       await trx
-        .insertInto('managed_session_messages')
-        .values(messagesRow)
-        .onConflict((oc) =>
-          oc.column('session_id').doUpdateSet({
-            messages: messagesRow.messages,
-          })
-        )
+        .deleteFrom('managed_session_message_items')
+        .where('session_id', '=', session.id)
         .execute()
+
+      for (let i = 0; i < messageRows.length; i += MESSAGE_INSERT_CHUNK_SIZE) {
+        await trx
+          .insertInto('managed_session_message_items')
+          .values(messageRows.slice(i, i + MESSAGE_INSERT_CHUNK_SIZE))
+          .execute()
+      }
     })
 
     this.setCachedFullSession(session)
@@ -136,14 +174,17 @@ export class ManagedSessionStore {
     }
   }
 
-  private async getMessagesJson(sessionId: string): Promise<string> {
-    const row = await this.db
-      .selectFrom('managed_session_messages')
-      .select('messages')
+  private async getMessages(sessionId: string): Promise<ManagedSessionMessage[]> {
+    const rows = await this.db
+      .selectFrom('managed_session_message_items')
+      .select('content_json')
       .where('session_id', '=', sessionId)
-      .executeTakeFirst()
+      .orderBy('ordinal', 'asc')
+      .execute()
 
-    return row?.messages ?? '[]'
+    return rows
+      .map((row) => messageItemRowToMessage(row))
+      .filter((message): message is ManagedSessionMessage => message !== null)
   }
 
   private rowToSnapshot(row: Parameters<typeof managedSessionRowToInfo>[0]): SessionSnapshot {
@@ -173,7 +214,8 @@ export class ManagedSessionStore {
 
     if (!row) return null
 
-    const session = managedSessionRowToInfo(row, await this.getMessagesJson(row.id))
+    const messages = await this.getMessages(row.id)
+    const session = managedSessionRowToInfo(row, JSON.stringify(messages))
     this.setCachedFullSession(session)
     return session
   }
@@ -197,7 +239,10 @@ export class ManagedSessionStore {
       .where('id', 'in', refs)
       .orderBy('last_activity', 'desc')
       .executeTakeFirst()
-    if (idMatch) return managedSessionRowToInfo(idMatch, await this.getMessagesJson(idMatch.id))
+    if (idMatch) {
+      const messages = await this.getMessages(idMatch.id)
+      return managedSessionRowToInfo(idMatch, JSON.stringify(messages))
+    }
 
     const engineRefMatch = await this.db
       .selectFrom('managed_sessions')
@@ -206,10 +251,115 @@ export class ManagedSessionStore {
       .orderBy('last_activity', 'desc')
       .executeTakeFirst()
     if (engineRefMatch) {
-      return managedSessionRowToInfo(engineRefMatch, await this.getMessagesJson(engineRefMatch.id))
+      const messages = await this.getMessages(engineRefMatch.id)
+      return managedSessionRowToInfo(engineRefMatch, JSON.stringify(messages))
     }
 
     return null
+  }
+
+  async getMessagePage(
+    sessionId: string,
+    params: SessionMessagePageParams = {},
+  ): Promise<SessionMessagePage> {
+    const limit = clampPageLimit(params.limit)
+    const session = await this.getSnapshot(sessionId)
+    const totalCount = session?.messageCount ?? 0
+
+    let rows: Array<{ ordinal: number; content_json: string }>
+
+    if (typeof params.aroundOrdinal === 'number' && Number.isFinite(params.aroundOrdinal)) {
+      const center = Math.trunc(params.aroundOrdinal)
+      const beforeCount = Math.floor((limit - 1) / 2)
+      const afterCount = limit - 1 - beforeCount
+      const start = Math.max(0, center - beforeCount)
+      const end = center + afterCount
+      rows = await this.db
+        .selectFrom('managed_session_message_items')
+        .select(['ordinal', 'content_json'])
+        .where('session_id', '=', sessionId)
+        .where('ordinal', '>=', start)
+        .where('ordinal', '<=', end)
+        .orderBy('ordinal', 'asc')
+        .execute()
+    } else if (typeof params.beforeOrdinal === 'number' && Number.isFinite(params.beforeOrdinal)) {
+      rows = await this.db
+        .selectFrom('managed_session_message_items')
+        .select(['ordinal', 'content_json'])
+        .where('session_id', '=', sessionId)
+        .where('ordinal', '<', Math.trunc(params.beforeOrdinal))
+        .orderBy('ordinal', 'desc')
+        .limit(limit)
+        .execute()
+      rows.reverse()
+    } else {
+      rows = await this.db
+        .selectFrom('managed_session_message_items')
+        .select(['ordinal', 'content_json'])
+        .where('session_id', '=', sessionId)
+        .orderBy('ordinal', 'desc')
+        .limit(limit)
+        .execute()
+      rows.reverse()
+    }
+
+    const messages = rows
+      .map((row) => messageItemRowToMessage(row))
+      .filter((message): message is ManagedSessionMessage => message !== null)
+    const oldestOrdinal = rows.length > 0 ? rows[0].ordinal : null
+    const newestOrdinal = rows.length > 0 ? rows[rows.length - 1].ordinal : null
+
+    return {
+      sessionId,
+      messages,
+      oldestOrdinal,
+      newestOrdinal,
+      totalCount,
+      hasMoreBefore: oldestOrdinal != null && oldestOrdinal > 0,
+    }
+  }
+
+  async searchSessionMessages(
+    sessionId: string,
+    query: string,
+    limit = 50,
+  ): Promise<SessionMessageSearchMatch[]> {
+    const ftsQuery = buildFTS5Query(query)
+    if (!ftsQuery) return []
+    const safeLimit = clampPageLimit(limit, 50)
+
+    const result = await sql<{
+      session_id: string
+      message_id: string
+      ordinal: number
+      turn_index: number
+      role: ManagedSessionMessage['role']
+      snippet: string
+    }>`
+      SELECT
+        item.session_id,
+        item.message_id,
+        item.ordinal,
+        item.turn_index,
+        item.role,
+        snippet(managed_session_message_items_fts, 0, '<mark>', '</mark>', '…', 12) AS snippet
+      FROM managed_session_message_items_fts
+      JOIN managed_session_message_items item
+        ON item.rowid = managed_session_message_items_fts.rowid
+      WHERE managed_session_message_items_fts MATCH ${ftsQuery}
+        AND item.session_id = ${sessionId}
+      ORDER BY item.ordinal ASC
+      LIMIT ${safeLimit}
+    `.execute(this.db)
+
+    return result.rows.map((row) => ({
+      sessionId: row.session_id,
+      messageId: row.message_id,
+      ordinal: row.ordinal,
+      turnIndex: row.turn_index,
+      role: row.role,
+      snippet: row.snippet,
+    }))
   }
 
   /**

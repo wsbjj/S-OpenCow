@@ -38,6 +38,7 @@ import type {
   SessionSnapshot,
   ManagedSessionMessage,
   ManagedSessionState,
+  SessionMessageSearchMatch,
   StartSessionInput,
   SetSessionModelInput,
   UserMessageContent,
@@ -62,6 +63,15 @@ export interface IssueSessionContext {
   activeDurationMs: number
   /** Epoch ms when the current active segment started; `null` when not active. */
   activeStartedAt: number | null
+}
+
+export interface SessionMessagePageState {
+  oldestOrdinal: number | null
+  newestOrdinal: number | null
+  totalCount: number
+  hasMoreBefore: boolean
+  isLoadingBefore: boolean
+  isLoadingAround: boolean
 }
 
 // ─── Store Interface ──────────────────────────────────────────────────
@@ -102,6 +112,8 @@ export interface CommandStore {
    * — never read messages from `managedSessions`.
    */
   sessionMessages: Record<string, ManagedSessionMessage[]>
+  /** Per-session metadata for the currently loaded message window. */
+  sessionMessagePages: Record<string, SessionMessagePageState>
   /**
    * Streaming message overlay — the latest snapshot of the currently-streaming
    * message for each session.
@@ -188,6 +200,16 @@ export interface CommandStore {
    * (`command:session:message`) — this method handles the cold-start path.
    */
   ensureSessionMessages: (sessionId: string) => Promise<void>
+  /** Load the next older page and prepend it to the current message window. */
+  loadOlderSessionMessages: (sessionId: string) => Promise<void>
+  /** Replace the current message window with messages around a search hit. */
+  loadSessionMessageAround: (sessionId: string, ordinal: number) => Promise<void>
+  /** Search persisted session messages through backend FTS. */
+  searchSessionMessages: (
+    sessionId: string,
+    query: string,
+    limit?: number,
+  ) => Promise<SessionMessageSearchMatch[]>
 
   /**
    * Ensure a session snapshot is loaded into `sessionById`.
@@ -263,10 +285,14 @@ const initialState = {
   managedSessions: [] as SessionSnapshot[],
   sessionById: {} as Record<string, SessionSnapshot>,
   sessionMessages: {} as Record<string, ManagedSessionMessage[]>,
+  sessionMessagePages: {} as Record<string, SessionMessagePageState>,
   streamingMessageBySession: {} as Record<string, ManagedSessionMessage | null>,
   latestTodosBySession: {} as Record<string, TodoWriteItem[] | null>,
   activeManagedSessionId: null as string | null,
 }
+
+const INITIAL_MESSAGE_PAGE_LIMIT = 100
+const SEARCH_AROUND_MESSAGE_LIMIT = 101
 
 // ─── In-flight deduplication for ensureSessionMessages ───────────────
 // Tracks sessionIds currently being fetched to prevent concurrent IPC
@@ -277,6 +303,20 @@ const _ensureInFlight = new Set<string>()
 // Separated from sessionMessages to avoid false positives: DataBus streaming
 // events can populate sessionMessages[sid] before the IPC fetch runs.
 const _historyFetched = new Set<string>()
+
+function mergeMessageWindows(
+  first: ManagedSessionMessage[],
+  second: ManagedSessionMessage[],
+): ManagedSessionMessage[] {
+  const seen = new Set<string>()
+  const merged: ManagedSessionMessage[] = []
+  for (const message of [...first, ...second]) {
+    if (seen.has(message.id)) continue
+    seen.add(message.id)
+    merged.push(message)
+  }
+  return merged
+}
 
 // ─── Store ────────────────────────────────────────────────────────────
 
@@ -663,12 +703,14 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
       // Clean up all structures atomically
       const { [sessionId]: _removedSession, ...remainingById } = s.sessionById
       const { [sessionId]: _removedMessages, ...remainingMessages } = s.sessionMessages
+      const { [sessionId]: _removedPage, ...remainingPages } = s.sessionMessagePages
       const { [sessionId]: _removedStreaming, ...remainingStreaming } = s.streamingMessageBySession
       const { [sessionId]: _removedTodos, ...remainingTodos } = s.latestTodosBySession
       return {
         managedSessions: s.managedSessions.filter((ms) => ms.id !== sessionId),
         sessionById: remainingById,
         sessionMessages: remainingMessages,
+        sessionMessagePages: remainingPages,
         streamingMessageBySession: remainingStreaming,
         latestTodosBySession: remainingTodos,
         activeManagedSessionId:
@@ -680,10 +722,10 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
   setActiveManagedSession: (sessionId) => set({ activeManagedSessionId: sessionId }),
 
   ensureSessionMessages: async (sessionId) => {
-    // Only skip if we've done a full IPC history fetch for this session.
+    // Only skip if we've done the initial paged history fetch for this session.
     // Do NOT use `sessionId in get().sessionMessages` — that key can be
     // populated by DataBus streaming events before the history fetch runs,
-    // causing the early exit to skip the full fetch (page-refresh bug).
+    // causing the early exit to skip the persisted history base.
     if (_historyFetched.has(sessionId)) return
 
     // Deduplicate concurrent calls for the same session.
@@ -693,20 +735,22 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
     _ensureInFlight.add(sessionId)
 
     try {
-      const fetched = await getAppAPI()['command:get-session-messages'](sessionId)
+      const page = await getAppAPI()['command:get-session-message-page'](sessionId, {
+        limit: INITIAL_MESSAGE_PAGE_LIMIT,
+      })
 
       // Merge: the IPC result is the authoritative history base.
       // Any DataBus messages that arrived while the IPC was in-flight and
       // are NOT already in the fetched result (generated after the snapshot)
       // must be preserved so we don't lose recent streaming chunks.
-      const fetchedIds = new Set(fetched.map((m) => m.id))
+      const fetchedIds = new Set(page.messages.map((m) => m.id))
       set((s) => {
         // Session was deleted while IPC was in-flight — discard result.
         if (!(sessionId in s.sessionById)) return {}
 
         const existing = s.sessionMessages[sessionId] ?? []
         const tail = existing.filter((m) => !fetchedIds.has(m.id))
-        const merged = tail.length > 0 ? [...fetched, ...tail] : fetched
+        const merged = tail.length > 0 ? mergeMessageWindows(page.messages, tail) : page.messages
         const overlay = s.streamingMessageBySession[sessionId] ?? null
         const derived = deriveLatestOpenTodos(merged, overlay)
         const prevTodos = s.latestTodosBySession[sessionId] ?? null
@@ -714,6 +758,17 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
           sessionMessages: {
             ...s.sessionMessages,
             [sessionId]: merged,
+          },
+          sessionMessagePages: {
+            ...s.sessionMessagePages,
+            [sessionId]: {
+              oldestOrdinal: page.oldestOrdinal,
+              newestOrdinal: page.newestOrdinal,
+              totalCount: page.totalCount,
+              hasMoreBefore: page.hasMoreBefore,
+              isLoadingBefore: false,
+              isLoadingAround: false,
+            },
           },
           ...(todoItemsEqual(prevTodos, derived)
             ? {}
@@ -731,6 +786,151 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
     } finally {
       _ensureInFlight.delete(sessionId)
     }
+  },
+
+  loadOlderSessionMessages: async (sessionId) => {
+    const pageState = get().sessionMessagePages[sessionId]
+    if (!pageState) {
+      await get().ensureSessionMessages(sessionId)
+      return
+    }
+    if (!pageState.hasMoreBefore || pageState.oldestOrdinal == null || pageState.isLoadingBefore) {
+      return
+    }
+
+    set((s) => ({
+      sessionMessagePages: {
+        ...s.sessionMessagePages,
+        [sessionId]: {
+          ...pageState,
+          isLoadingBefore: true,
+        },
+      },
+    }))
+
+    try {
+      const page = await getAppAPI()['command:get-session-message-page'](sessionId, {
+        beforeOrdinal: pageState.oldestOrdinal,
+        limit: INITIAL_MESSAGE_PAGE_LIMIT,
+      })
+
+      set((s) => {
+        if (!(sessionId in s.sessionById)) return {}
+        const existing = s.sessionMessages[sessionId] ?? []
+        const merged = mergeMessageWindows(page.messages, existing)
+        const overlay = s.streamingMessageBySession[sessionId] ?? null
+        const derived = deriveLatestOpenTodos(merged, overlay)
+        const prevTodos = s.latestTodosBySession[sessionId] ?? null
+        return {
+          sessionMessages: {
+            ...s.sessionMessages,
+            [sessionId]: merged,
+          },
+          sessionMessagePages: {
+            ...s.sessionMessagePages,
+            [sessionId]: {
+              oldestOrdinal: page.oldestOrdinal ?? pageState.oldestOrdinal,
+              newestOrdinal: Math.max(page.newestOrdinal ?? pageState.newestOrdinal ?? 0, pageState.newestOrdinal ?? 0),
+              totalCount: page.totalCount,
+              hasMoreBefore: page.hasMoreBefore,
+              isLoadingBefore: false,
+              isLoadingAround: false,
+            },
+          },
+          ...(todoItemsEqual(prevTodos, derived)
+            ? {}
+            : {
+                latestTodosBySession: {
+                  ...s.latestTodosBySession,
+                  [sessionId]: derived,
+                },
+              }),
+        }
+      })
+    } catch {
+      set((s) => {
+        const current = s.sessionMessagePages[sessionId]
+        if (!current) return {}
+        return {
+          sessionMessagePages: {
+            ...s.sessionMessagePages,
+            [sessionId]: { ...current, isLoadingBefore: false },
+          },
+        }
+      })
+    }
+  },
+
+  loadSessionMessageAround: async (sessionId, ordinal) => {
+    const current = get().sessionMessagePages[sessionId]
+    set((s) => ({
+      sessionMessagePages: {
+        ...s.sessionMessagePages,
+        [sessionId]: {
+          oldestOrdinal: current?.oldestOrdinal ?? null,
+          newestOrdinal: current?.newestOrdinal ?? null,
+          totalCount: current?.totalCount ?? 0,
+          hasMoreBefore: current?.hasMoreBefore ?? false,
+          isLoadingBefore: false,
+          isLoadingAround: true,
+        },
+      },
+    }))
+
+    try {
+      const page = await getAppAPI()['command:get-session-message-page'](sessionId, {
+        aroundOrdinal: ordinal,
+        limit: SEARCH_AROUND_MESSAGE_LIMIT,
+      })
+
+      set((s) => {
+        if (!(sessionId in s.sessionById)) return {}
+        const overlay = s.streamingMessageBySession[sessionId] ?? null
+        const derived = deriveLatestOpenTodos(page.messages, overlay)
+        const prevTodos = s.latestTodosBySession[sessionId] ?? null
+        return {
+          sessionMessages: {
+            ...s.sessionMessages,
+            [sessionId]: page.messages,
+          },
+          sessionMessagePages: {
+            ...s.sessionMessagePages,
+            [sessionId]: {
+              oldestOrdinal: page.oldestOrdinal,
+              newestOrdinal: page.newestOrdinal,
+              totalCount: page.totalCount,
+              hasMoreBefore: page.hasMoreBefore,
+              isLoadingBefore: false,
+              isLoadingAround: false,
+            },
+          },
+          ...(todoItemsEqual(prevTodos, derived)
+            ? {}
+            : {
+                latestTodosBySession: {
+                  ...s.latestTodosBySession,
+                  [sessionId]: derived,
+                },
+              }),
+        }
+      })
+      _historyFetched.add(sessionId)
+    } catch {
+      set((s) => {
+        const page = s.sessionMessagePages[sessionId]
+        if (!page) return {}
+        return {
+          sessionMessagePages: {
+            ...s.sessionMessagePages,
+            [sessionId]: { ...page, isLoadingAround: false },
+          },
+        }
+      })
+    }
+  },
+
+  searchSessionMessages: (sessionId, query, limit) => {
+    return getAppAPI()['command:search-session-messages'](sessionId, query, limit)
   },
 
   ensureSession: async (sessionId) => {

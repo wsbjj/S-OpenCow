@@ -110,6 +110,10 @@ export interface ManagedSessionTable {
   /** Session-level desired model for the next turn. Added in migration 053. */
   desired_model: string | null
   model: string | null
+  /** Number of message rows in managed_session_message_items. Added in migration 055. */
+  message_count: number
+  /** Summary extracted from the first user message. Added in migration 055. */
+  first_user_summary: string | null
   created_at: number
   last_activity: number
   /** Cumulative active duration in ms (creating/streaming/stopping only). Added in migration 032. */
@@ -126,9 +130,15 @@ export interface ManagedSessionTable {
   execution_context: string | null
 }
 
-export interface ManagedSessionMessageTable {
+export interface ManagedSessionMessageItemTable {
   session_id: string
-  messages: string // JSON array: ManagedSessionMessage[]
+  ordinal: number
+  message_id: string
+  turn_index: number
+  role: string
+  timestamp: number
+  content_json: string // JSON: ManagedSessionMessage
+  text_content: string
 }
 
 // ─── Projects ────────────────────────────────────────────────────────────
@@ -449,7 +459,7 @@ export interface Database {
   custom_labels: CustomLabelTable
   inbox_messages: InboxMessageTable
   managed_sessions: ManagedSessionTable
-  managed_session_messages: ManagedSessionMessageTable
+  managed_session_message_items: ManagedSessionMessageItemTable
   projects: ProjectTable
   project_claude_mappings: ProjectClaudeMappingTable
   project_external_mappings: ProjectExternalMappingTable

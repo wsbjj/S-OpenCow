@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Square, RotateCcw, Plus, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
+import { Square, RotateCcw, Plus, RefreshCw, ChevronDown, ChevronUp, Search } from 'lucide-react'
 import { SessionStateIndicator, SessionStateLabel } from '../SessionStatusCard'
 import { SessionHistoryDropdown } from './SessionHistoryDropdown'
 import type { SessionHistoryContext } from './sessionHistoryTypes'
@@ -16,11 +16,16 @@ import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { shallow } from 'zustand/shallow'
 import { resolveContextDisplayState } from '@shared/contextDisplay'
 import type { TFunction } from 'i18next'
-import type { ManagedSessionState, SessionStopReason } from '@shared/types'
+import type { ManagedSessionState, SessionMessageSearchMatch, SessionStopReason } from '@shared/types'
 import { createLogger } from '@/lib/logger'
 import { getAppAPI } from '@/windowAPI'
 
 const log = createLogger('SessionStatusBar')
+
+interface SnippetSegment {
+  text: string
+  highlighted: boolean
+}
 
 /**
  * SessionStatusBar props.
@@ -46,12 +51,166 @@ interface SessionStatusBarProps {
   onRetry?: () => void
   onNewSession?: () => void
   onNewBlankSession?: () => void
+  onSearchResultSelect?: (match: SessionMessageSearchMatch) => void
   /** Session history context — omit to hide the history dropdown. */
   history?: SessionHistoryContext
   /** Whether the console is in expanded (maximized) mode */
   isExpanded?: boolean
   /** Toggle console expand/collapse */
   onToggleExpand?: () => void
+}
+
+function parseSnippetSegments(snippet: string): SnippetSegment[] {
+  const parts = snippet.split(/(<mark>|<\/mark>)/g)
+  let highlighted = false
+  const segments: SnippetSegment[] = []
+
+  for (const part of parts) {
+    if (part === '<mark>') {
+      highlighted = true
+      continue
+    }
+    if (part === '</mark>') {
+      highlighted = false
+      continue
+    }
+    if (!part) continue
+    segments.push({ text: part, highlighted })
+  }
+
+  return segments
+}
+
+function SnippetText({ snippet }: { snippet: string }): React.JSX.Element {
+  const segments = parseSnippetSegments(snippet)
+  return (
+    <>
+      {segments.map((segment, index) => (
+        segment.highlighted ? (
+          <mark key={index} className="rounded-sm bg-[hsl(var(--primary)/0.16)] text-[hsl(var(--foreground))] px-0.5">
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        )
+      ))}
+    </>
+  )
+}
+
+function SessionSearchPopover({
+  sessionId,
+  onSelect,
+}: {
+  sessionId: string
+  onSelect?: (match: SessionMessageSearchMatch) => void
+}): React.JSX.Element {
+  const { t } = useTranslation('sessions')
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [results, setResults] = useState<SessionMessageSearchMatch[]>([])
+  const trimmedQuery = query.trim()
+  const visibleResults = trimmedQuery ? results : []
+  const isSearching = trimmedQuery.length > 0 && loading
+
+  useEffect(() => {
+    if (!open) return
+    const trimmed = query.trim()
+    if (!trimmed) return
+
+    let cancelled = false
+    const loadingTimer = window.setTimeout(() => {
+      if (!cancelled) setLoading(true)
+    }, 0)
+    const timer = window.setTimeout(() => {
+      useCommandStore.getState().searchSessionMessages(sessionId, trimmed, 50)
+        .then((matches) => {
+          if (!cancelled) setResults(matches)
+        })
+        .catch(() => {
+          if (!cancelled) setResults([])
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    }, 200)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(loadingTimer)
+      window.clearTimeout(timer)
+    }
+  }, [open, query, sessionId])
+
+  const trigger = (
+    <button
+      onClick={() => setOpen((prev) => !prev)}
+      className="flex items-center justify-center w-6 h-6 rounded-md text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--foreground)/0.04)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+      aria-label={t('sessionSearch.openAria')}
+    >
+      <Search className="w-3 h-3" aria-hidden="true" />
+    </button>
+  )
+
+  return (
+    <PillDropdown
+      open={open}
+      onOpenChange={setOpen}
+      position="below"
+      align="right"
+      trigger={
+        open ? trigger : (
+          <Tooltip content={t('sessionSearch.tooltip')} align="end">
+            {trigger}
+          </Tooltip>
+        )
+      }
+    >
+      <div className="w-[340px] p-2">
+        <div className="flex items-center gap-2 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5">
+          <Search className="w-3.5 h-3.5 text-[hsl(var(--muted-foreground))]" aria-hidden="true" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('sessionSearch.placeholder')}
+            aria-label={t('sessionSearch.inputAria')}
+            className="min-w-0 flex-1 bg-transparent text-xs text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none"
+            autoFocus
+          />
+        </div>
+        <div className="mt-2 max-h-[280px] overflow-y-auto">
+          {isSearching && (
+            <p className="px-2 py-2 text-xs text-[hsl(var(--muted-foreground))]">
+              {t('sessionSearch.searching')}
+            </p>
+          )}
+          {!isSearching && trimmedQuery && visibleResults.length === 0 && (
+            <p className="px-2 py-2 text-xs text-[hsl(var(--muted-foreground))]">
+              {t('sessionSearch.noResults')}
+            </p>
+          )}
+          {!isSearching && visibleResults.map((match) => (
+            <button
+              key={`${match.messageId}:${match.ordinal}`}
+              onClick={() => {
+                setOpen(false)
+                onSelect?.(match)
+              }}
+              className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-[hsl(var(--foreground)/0.04)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[hsl(var(--ring))]"
+            >
+              <p className="text-[10px] uppercase tracking-normal text-[hsl(var(--muted-foreground))]">
+                {match.role} · #{match.ordinal + 1}
+              </p>
+              <p className="mt-0.5 line-clamp-2 text-xs text-[hsl(var(--foreground))]">
+                <SnippetText snippet={match.snippet} />
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+    </PillDropdown>
+  )
 }
 
 function stopReasonLabel(reason: SessionStopReason | null, t: TFunction<'sessions'>): string {
@@ -124,6 +283,7 @@ export const SessionStatusBar = React.memo(function SessionStatusBar({
   onRetry,
   onNewSession,
   onNewBlankSession,
+  onSearchResultSelect,
   history,
   isExpanded,
   onToggleExpand
@@ -204,6 +364,10 @@ export const SessionStatusBar = React.memo(function SessionStatusBar({
       </div>
 
       <div className="flex items-center gap-1 shrink-0">
+        <SessionSearchPopover
+          sessionId={sessionId}
+          onSelect={onSearchResultSelect}
+        />
         {showStop && (
           <button
             onClick={() => onStop?.()}

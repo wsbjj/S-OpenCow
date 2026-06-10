@@ -577,6 +577,15 @@ export interface IPCChannels {
   }
   'command:list-managed-sessions': { args: []; return: SessionSnapshot[] }
   'command:get-managed-session': { args: [sessionId: string]; return: SessionSnapshot | null }
+  'command:get-session-message-page': {
+    args: [sessionId: string, params?: SessionMessagePageParams]
+    return: SessionMessagePage
+  }
+  'command:search-session-messages': {
+    args: [sessionId: string, query: string, limit?: number]
+    return: SessionMessageSearchMatch[]
+  }
+  /** @deprecated Use `command:get-session-message-page` for UI history loading. */
   'command:get-session-messages': { args: [sessionId: string]; return: ManagedSessionMessage[] }
   'command:delete-session': { args: [sessionId: string]; return: boolean }
   // Settings
@@ -3266,6 +3275,10 @@ export interface SessionSnapshot {
   desiredModel?: string | null
   /** Runtime-observed model reported by the engine. */
   model: string | null
+  /** Persisted message count, available for archived/session-list metadata. */
+  messageCount?: number
+  /** Short summary extracted from the first user message for history lists. */
+  firstUserSummary?: string | null
   createdAt: number
   lastActivity: number
   /**
@@ -3310,6 +3323,33 @@ export interface SessionSnapshot {
  */
 export interface ManagedSessionInfo extends SessionSnapshot {
   messages: ManagedSessionMessage[]
+}
+
+export interface SessionMessagePageParams {
+  /** Load messages before this ordinal, exclusive. */
+  beforeOrdinal?: number
+  /** Load a window centered around this ordinal. */
+  aroundOrdinal?: number
+  /** Maximum number of messages to return. Defaults to 100. */
+  limit?: number
+}
+
+export interface SessionMessagePage {
+  sessionId: string
+  messages: ManagedSessionMessage[]
+  oldestOrdinal: number | null
+  newestOrdinal: number | null
+  totalCount: number
+  hasMoreBefore: boolean
+}
+
+export interface SessionMessageSearchMatch {
+  sessionId: string
+  messageId: string
+  ordinal: number
+  turnIndex: number
+  role: ManagedSessionMessage['role']
+  snippet: string
 }
 
 /**
