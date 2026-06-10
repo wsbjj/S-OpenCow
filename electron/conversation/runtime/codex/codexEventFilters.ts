@@ -5,11 +5,13 @@ import type { RuntimeDiagnosticPayload } from '../events'
 const LAGGED_EVENT_STREAM_RE = /event stream lagged;\s*dropped\s+\d+\s+events?/i
 const LONG_THREAD_COMPACTION_ADVISORY_RE =
   /heads up:.*long threads.*multiple compactions.*less accurate/i
+const PAYLOAD_TOO_LARGE_RE = /^Reconnecting\.\.\.\s+\d+\/\d+.*(?:\b413\b|Payload Too Large)/i
 const RECONNECTING_RE = /^Reconnecting\.\.\.\s+\d+\/\d+/i
 
 type CodexDiagnosticCode =
   | 'codex.event_stream_lag'
   | 'codex.long_thread_compaction_advisory'
+  | 'codex.payload_too_large'
   | 'codex.reconnecting'
 
 interface CodexDiagnosticRule {
@@ -34,6 +36,13 @@ const CODEX_DIAGNOSTIC_RULES: readonly CodexDiagnosticRule[] = [
     terminal: false,
     source: 'codex.thread',
     pattern: LONG_THREAD_COMPACTION_ADVISORY_RE,
+  },
+  {
+    code: 'codex.payload_too_large',
+    severity: 'warning',
+    terminal: false,
+    source: 'codex.transport',
+    pattern: PAYLOAD_TOO_LARGE_RE,
   },
   {
     code: 'codex.reconnecting',

@@ -254,6 +254,7 @@
     "fileDropHintSub": "Images, PDFs, and text files will be attached to your message"
   },
   "engineDiagnostics": {
+    "payloadTooLargeLine": "Request body is too large. Start a new session.",
     "reconnectingLine": "Codex service is temporarily unavailable. Reconnecting ({{retry}}).",
     "reconnectingLineNoRetry": "Codex service is temporarily unavailable. Reconnecting.",
     "reconnectingToast": "Codex service is temporarily unavailable. Reconnecting ({{retry}})."

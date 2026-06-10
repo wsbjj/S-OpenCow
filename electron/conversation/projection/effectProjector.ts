@@ -75,6 +75,11 @@ function logEngineDiagnostic(params: {
 }
 
 const CODEX_RECONNECTING_DIAGNOSTIC_CODE = 'codex.reconnecting'
+const CODEX_PAYLOAD_TOO_LARGE_DIAGNOSTIC_CODE = 'codex.payload_too_large'
+const USER_VISIBLE_CODEX_DIAGNOSTIC_CODES = new Set([
+  CODEX_RECONNECTING_DIAGNOSTIC_CODE,
+  CODEX_PAYLOAD_TOO_LARGE_DIAGNOSTIC_CODE,
+])
 const ENGINE_DIAGNOSTIC_TOAST_DURATION_MS = 6_000
 const RECONNECTING_RETRY_RE = /^Reconnecting\.\.\.\s+(\d+)\/(\d+)/i
 const SERVICE_UNAVAILABLE_RE = /\b503\b|Service Unavailable/i
@@ -124,7 +129,7 @@ function applyUserVisibleEngineDiagnostic(params: {
   ctx: SessionContext
 }): void {
   const { effect, ctx } = params
-  if (effect.payload.code !== CODEX_RECONNECTING_DIAGNOSTIC_CODE) return
+  if (!USER_VISIBLE_CODEX_DIAGNOSTIC_CODES.has(effect.payload.code)) return
 
   const now = Date.now()
   const refId = engineDiagnosticRefId(effect.payload)
@@ -146,6 +151,8 @@ function applyUserVisibleEngineDiagnostic(params: {
   const event = buildEngineDiagnosticSystemEvent({ payload: effect.payload, now })
   const messageId = ctx.session.addSystemEvent(event)
   ctx.dispatchMessageById(messageId)
+  if (effect.payload.code !== CODEX_RECONNECTING_DIAGNOSTIC_CODE) return
+
   ctx.dispatch({
     type: 'ui:toast',
     payload: {

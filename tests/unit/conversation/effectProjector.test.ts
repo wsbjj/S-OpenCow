@@ -8,6 +8,8 @@ import { MCP_SERVER_QUALIFIED_NAME } from '../../../src/shared/appIdentity'
 
 const RECONNECTING_503_MESSAGE =
   'Reconnecting... 1/5 (unexpected status 503 Service Unavailable: Service temporarily unavailable, url: https://agent.cam01.cn/v1/responses, request id: req-1)'
+const PAYLOAD_TOO_LARGE_413_MESSAGE =
+  'Reconnecting... 1/5 (unexpected status 413 Payload Too Large: openai_error, url: https://agent.cam01.cn/v1/responses)'
 
 function makeEngineDiagnosticEffect(params?: {
   code?: string
@@ -181,6 +183,87 @@ describe('applyConversationDomainEffects', () => {
     expect(event.retryTotal).toBe(5)
     expect(event.occurrenceCount).toBe(2)
     expect(event.lastSeenAtMs).toEqual(expect.any(Number))
+  })
+
+  it('projects payload-too-large diagnostics to one visible system event without a toast', () => {
+    const ctx = makeContext({ engineKind: 'codex' })
+
+    applyConversationDomainEffects({
+      effects: [
+        makeEngineDiagnosticEffect({
+          code: 'codex.payload_too_large',
+          message: PAYLOAD_TOO_LARGE_413_MESSAGE,
+        }),
+      ],
+      ctx,
+    })
+
+    expect(ctx.session.addSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'engine_diagnostic',
+        code: 'codex.payload_too_large',
+        severity: 'warning',
+        source: 'codex.transport',
+        message: PAYLOAD_TOO_LARGE_413_MESSAGE,
+        terminal: false,
+        retryCurrent: 1,
+        retryTotal: 5,
+        occurrenceCount: 1,
+        firstSeenAtMs: expect.any(Number),
+        lastSeenAtMs: expect.any(Number),
+      }),
+    )
+    expect(ctx.dispatchMessageById).toHaveBeenCalledWith('sys-1')
+    expect(ctx.dispatch).not.toHaveBeenCalled()
+  })
+
+  it('updates the existing payload-too-large diagnostic instead of creating duplicates', () => {
+    const ctx = makeContext({ engineKind: 'codex' })
+    ctx.session.getSystemEventMessageId = vi
+      .fn()
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce('sys-1')
+
+    applyConversationDomainEffects({
+      effects: [
+        makeEngineDiagnosticEffect({
+          code: 'codex.payload_too_large',
+          message: PAYLOAD_TOO_LARGE_413_MESSAGE,
+        }),
+        makeEngineDiagnosticEffect({
+          code: 'codex.payload_too_large',
+          message: 'Reconnecting... 2/5 (unexpected status 413 Payload Too Large: openai_error, url: https://agent.cam01.cn/v1/responses)',
+        }),
+      ],
+      ctx,
+    })
+
+    expect(ctx.session.addSystemEvent).toHaveBeenCalledTimes(1)
+    expect(ctx.session.updateSystemEvent).toHaveBeenCalledWith(
+      'engine-diagnostic:codex.payload_too_large:codex.transport',
+      expect.any(Function),
+    )
+
+    const updater = ctx.session.updateSystemEvent.mock.calls[0]?.[1]
+    const event = {
+      type: 'engine_diagnostic' as const,
+      code: 'codex.payload_too_large',
+      severity: 'warning' as const,
+      source: 'codex.transport',
+      message: PAYLOAD_TOO_LARGE_413_MESSAGE,
+      terminal: false,
+      retryCurrent: 1,
+      retryTotal: 5,
+      occurrenceCount: 1,
+      firstSeenAtMs: 100,
+      lastSeenAtMs: 100,
+    }
+    updater?.(event)
+
+    expect(event.message).toContain('Reconnecting... 2/5')
+    expect(event.retryCurrent).toBe(2)
+    expect(event.retryTotal).toBe(5)
+    expect(event.occurrenceCount).toBe(2)
   })
 
   it('keeps non-reconnecting diagnostics log-only', () => {

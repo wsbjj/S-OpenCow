@@ -114,7 +114,9 @@ export const SystemEventView = memo(function SystemEventView({ event }: SystemEv
       const retryLabel = event.retryCurrent != null && event.retryTotal != null
         ? `${event.retryCurrent}/${event.retryTotal}`
         : ''
-      const label = event.code === 'codex.reconnecting'
+      const label = event.code === 'codex.payload_too_large'
+        ? t('engineDiagnostics.payloadTooLargeLine')
+        : event.code === 'codex.reconnecting'
         ? retryLabel
           ? t('engineDiagnostics.reconnectingLine', { retry: retryLabel })
           : t('engineDiagnostics.reconnectingLineNoRetry')

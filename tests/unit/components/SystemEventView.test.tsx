@@ -147,5 +147,25 @@ describe('SystemEventView', () => {
       expect(screen.getByLabelText(/Codex service is temporarily unavailable.*2\/5/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/Reconnecting\.\.\. 2\/5.*503 Service Unavailable/i)).toBeInTheDocument()
     })
+
+    it('renders payload-too-large diagnostics with the new-session prompt', () => {
+      renderEvent({
+        type: 'engine_diagnostic',
+        code: 'codex.payload_too_large',
+        severity: 'warning',
+        source: 'codex.transport',
+        message:
+          'Reconnecting... 1/5 (unexpected status 413 Payload Too Large: openai_error, url: https://agent.cam01.cn/v1/responses)',
+        terminal: false,
+        firstSeenAtMs: 100,
+        lastSeenAtMs: 100,
+        occurrenceCount: 1,
+        retryCurrent: 1,
+        retryTotal: 5,
+      })
+
+      expect(screen.getByText('Request body is too large. Start a new session.')).toBeInTheDocument()
+      expect(screen.getByLabelText(/Payload Too Large/i)).toBeInTheDocument()
+    })
   })
 })

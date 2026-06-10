@@ -127,6 +127,23 @@ describe('CodexRuntimeEventAdapter', () => {
     expect(result.hasTerminalResult).toBe(false)
   })
 
+  it('emits non-terminal payload-too-large diagnostic for 413 retry errors', () => {
+    const adapter = new CodexRuntimeEventAdapter()
+    const result = adapter.adapt({
+      type: 'error',
+      message: 'Reconnecting... 1/5 (unexpected status 413 Payload Too Large: openai_error, url: https://agent.cam01.cn/v1/responses)',
+    } as never)
+
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.kind).toBe('engine.diagnostic')
+    if (result.events[0]?.kind === 'engine.diagnostic') {
+      expect(result.events[0].payload.code).toBe('codex.payload_too_large')
+      expect(result.events[0].payload.terminal).toBe(false)
+      expect(result.events[0].payload.severity).toBe('warning')
+    }
+    expect(result.hasTerminalResult).toBe(false)
+  })
+
   it('allows turn to succeed after transient reconnecting errors', () => {
     const adapter = new CodexRuntimeEventAdapter()
 

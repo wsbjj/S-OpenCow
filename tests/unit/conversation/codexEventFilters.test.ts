@@ -50,6 +50,19 @@ describe('codexEventFilters', () => {
     expect(isIgnorableCodexNonFatalError('Reconnecting... 5/5 (timeout)')).toBe(true)
   })
 
+  it('classifies payload-too-large retry messages separately from generic reconnecting', () => {
+    const message = 'Reconnecting... 1/5 (unexpected status 413 Payload Too Large: openai_error, url: https://agent.cam01.cn/v1/responses)'
+
+    expect(isIgnorableCodexNonFatalError(message)).toBe(true)
+    const diagnostic = classifyCodexErrorMessage(message)
+    expect(diagnostic).toMatchObject({
+      code: 'codex.payload_too_large',
+      severity: 'warning',
+      terminal: false,
+      source: 'codex.transport',
+    })
+  })
+
   it('does not mark genuine execution errors as non-fatal', () => {
     const message = 'Command failed with exit code 2'
     expect(isIgnorableCodexStreamLagError(message)).toBe(false)

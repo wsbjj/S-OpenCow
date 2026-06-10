@@ -254,6 +254,7 @@
     "fileDropHintSub": "支持图片、PDF 和文本文件"
   },
   "engineDiagnostics": {
+    "payloadTooLargeLine": "请求体过大，请新建会话",
     "reconnectingLine": "Codex 服务暂时不可用，正在重连（{{retry}}）。",
     "reconnectingLineNoRetry": "Codex 服务暂时不可用，正在重连。",
     "reconnectingToast": "Codex 服务暂时不可用，正在重连（{{retry}}）。"
