@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '!v*-dev'
 
 # Only one release build at a time; never cancel an in-flight release.
 concurrency:

@@ -1,0 +1,206 @@
+name: Test Release
+
+on:
+  push:
+    branches: [dev]
+    tags:
+      - 'v*-dev'
+  workflow_dispatch:
+
+concurrency:
+  group: test-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.13.1'
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  validate:
+    name: Validate Test Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+              echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
+              exit 1
+            fi
+          fi
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+
+  build-macos:
+    name: Build macOS Unsigned
+    needs: validate
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build electron-vite artifacts
+        run: pnpm exec electron-vite build
+
+      - name: Build unsigned macOS test package
+        run: >
+          pnpm exec electron-builder --mac --universal --publish never
+          -c.mac.identity=null
+          -c.mac.notarize=false
+          -c.mac.hardenedRuntime=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload macOS test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-macos-artifacts
+          path: |
+            dist/*.dmg
+            dist/*-mac.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  build-windows:
+    name: Build Windows
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build electron-vite artifacts
+        run: pnpm exec electron-vite build
+
+      - name: Build Windows test package
+        run: pnpm exec electron-builder --win --x64 --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-windows-artifacts
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  build-linux:
+    name: Build Linux
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-0 \
+            libnotify4 \
+            libnss3 \
+            libxss1 \
+            libxtst6 \
+            xdg-utils \
+            libatspi2.0-0 \
+            libsecret-1-0 \
+            libpython3-stdlib \
+            libpython3.12 \
+            libgcc-s1 \
+            libwebkit2gtk-4.1-0 \
+            libgbm1
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build electron-vite artifacts
+        run: pnpm exec electron-vite build
+
+      - name: Build Linux test package
+        run: pnpm exec electron-builder --linux AppImage --x64 --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-linux-artifacts
+          path: dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+  create-test-release:
+    name: Create Test Release
+    needs: [validate, build-macos, build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: List artifacts
+        run: find dist/ -type f | sort
+
+      - name: Create GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: OpenCow Test v${{ needs.validate.outputs.version }}
+          body: |
+            Unsigned test build for `${{ github.ref_name }}`.
+
+            macOS artifacts are not code signed or notarized.
+          files: |
+            dist/**/*.dmg
+            dist/**/*.zip
+            dist/**/*.exe
+            dist/**/*.AppImage
+          generate_release_notes: true
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
