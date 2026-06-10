@@ -3,7 +3,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { SessionPanel } from '../../../src/renderer/components/DetailPanel/SessionPanel/SessionPanel'
@@ -180,5 +180,51 @@ describe('SessionPanel', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: /^start session$/i }))
     expect(create).toHaveBeenCalledOnce()
+  })
+
+  it('resends the last failed user message from the retry action', async () => {
+    const send = vi.fn().mockResolvedValue(false)
+    const resume = vi.fn().mockResolvedValue(true)
+    const retry = vi.fn()
+    const session = makeManagedSession(DEFAULT_SESSION_OVERRIDES)
+    setCommandStoreSessions([session])
+
+    render(
+      <SessionPanel
+        binding={{ kind: 'session', sessionId: 'session-1' }}
+        lifecycle="active"
+        isStarting={false}
+        capabilities={makeCapabilities({ send, resume, retry })}
+      />
+    )
+
+    const editor = await screen.findByRole('textbox')
+    await userEvent.click(editor)
+    await userEvent.type(editor, 'Retry after network flap')
+    await userEvent.click(screen.getByRole('button', { name: /send message/i }))
+
+    await waitFor(() => {
+      expect(send).toHaveBeenCalledWith('Retry after network flap')
+    })
+
+    act(() => {
+      setCommandStoreSessions([
+        makeManagedSession({
+          ...DEFAULT_SESSION_OVERRIDES,
+          state: 'error',
+          error: 'Network request failed',
+        }),
+      ])
+    })
+
+    await userEvent.click(await screen.findByRole('button', { name: /retry session/i }))
+
+    await waitFor(() => {
+      expect(resume).toHaveBeenCalledWith('Retry after network flap')
+    })
+    await waitFor(() => {
+      expect(editor.textContent).toBe('')
+    })
+    expect(retry).not.toHaveBeenCalled()
   })
 })

@@ -15,7 +15,7 @@ import { useSlashSuggestion } from './useSlashSuggestion'
 import { useFileSearch } from './useFileSearch'
 import { createFileMentionRenderer } from '../extensions/fileMentionSuggestion'
 import type { SlashItem } from '@shared/slashItems'
-import type { AIEngineKind, UserMessageContent, FileEntry } from '@shared/types'
+import type { AIEngineKind, UserMessageContent, FileEntry, ImageMediaType, DocumentMediaType } from '@shared/types'
 import { ATTACHMENT_LIMITS } from '@shared/types'
 import { extractEditorSegments } from '../lib/extractEditorSegments'
 import type { EditorSegment } from '@shared/editorSegments'
@@ -26,6 +26,7 @@ import { getAppAPI } from '@/windowAPI'
 import { serializeContextFiles } from '@/lib/contextFilesParsing'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { buildSlashMentionInsertContent } from '../lib/slashMentionContent'
+import { contentToEditorDoc } from '@/lib/editorContentBridge'
 
 const log = createLogger('MessageComposer')
 
@@ -103,6 +104,10 @@ export interface MessageComposerState {
 
   /** Trigger submit programmatically */
   submit: () => Promise<void>
+  /** Replace the current editor draft with an existing user message. */
+  setDraft: (content: UserMessageContent) => void
+  /** Clear the current editor draft and pending attachments. */
+  clear: () => void
   /** Add files (validates and processes images + documents) */
   addAttachments: (files: File[]) => Promise<void>
   /** Remove an attachment by id */
@@ -133,6 +138,40 @@ import { buildStructuredContent } from '@shared/contentBuilder'
  * `\n` character, so each save→restore cycle inflates the document structure.
  */
 const draftCache = new Map<string, { html: string; attachments: ProcessedAttachment[] }>()
+
+function createDraftAttachmentId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function attachmentsFromContent(content: UserMessageContent): ProcessedAttachment[] {
+  if (typeof content === 'string') return []
+
+  return content.flatMap((block): ProcessedAttachment[] => {
+    if (block.type === 'image') {
+      return [{
+        kind: 'image',
+        id: createDraftAttachmentId(),
+        fileName: 'image',
+        mediaType: block.mediaType as ImageMediaType,
+        base64Data: block.data,
+        sizeBytes: block.sizeBytes,
+        dataUrl: `data:${block.mediaType};base64,${block.data}`,
+      } as ProcessedAttachment]
+    }
+    if (block.type === 'document') {
+      return [{
+        kind: 'document',
+        id: createDraftAttachmentId(),
+        fileName: block.title,
+        mediaType: block.mediaType as DocumentMediaType,
+        data: block.data,
+        encoding: block.mediaType === 'text/plain' ? 'utf8' : 'base64',
+        sizeBytes: block.sizeBytes,
+      } as ProcessedAttachment]
+    }
+    return []
+  })
+}
 
 /* ------------------------------------------------------------------ */
 /*  Hook                                                               */
@@ -441,6 +480,38 @@ export function useMessageComposer(options: UseMessageComposerOptions): MessageC
 
   /* -- Submit -- */
 
+  const clear = useCallback(() => {
+    if (editor && !editor.isDestroyed) {
+      editor.commands.clearContent()
+      bumpContentVersion()
+    }
+    setPendingAttachments([])
+    pendingAttachmentsRef.current = []
+    latestTextRef.current = ''
+    latestHtmlRef.current = ''
+    setHasTextContent(false)
+    if (cacheKey) draftCache.delete(cacheKey)
+  }, [editor, cacheKey, bumpContentVersion])
+
+  const setDraft = useCallback((content: UserMessageContent) => {
+    if (!editor || editor.isDestroyed) return
+
+    const { doc } = contentToEditorDoc(content)
+    editor.commands.setContent(doc)
+    editor.commands.focus('end')
+    bumpContentVersion()
+
+    const attachments = attachmentsFromContent(content)
+    setPendingAttachments(attachments)
+    pendingAttachmentsRef.current = attachments
+
+    const text = editor.getText().trim()
+    latestTextRef.current = text
+    latestHtmlRef.current = editor.getHTML()
+    setHasTextContent(text.length > 0)
+    if (cacheKey) draftCache.delete(cacheKey)
+  }, [editor, cacheKey, bumpContentVersion])
+
   const submit = useCallback(async () => {
     if (!editor || isSending) return
 
@@ -513,14 +584,7 @@ export function useMessageComposer(options: UseMessageComposerOptions): MessageC
       // On thrown errors the catch block runs — content is naturally
       // preserved because we never cleared it.
       if (result !== false) {
-        if (!editor.isDestroyed) {
-          editor.commands.clearContent()
-        }
-        setPendingAttachments([])
-        pendingAttachmentsRef.current = []
-        latestTextRef.current = ''
-        latestHtmlRef.current = ''
-        if (cacheKey) draftCache.delete(cacheKey)
+        clear()
       }
     } catch (err) {
       // Content is naturally preserved — no rollback needed because
@@ -550,7 +614,7 @@ export function useMessageComposer(options: UseMessageComposerOptions): MessageC
         editor.commands.focus()
       }
     }
-  }, [editor, pendingAttachments, isSending, onSubmit, cacheKey, effectiveEngineKind])
+  }, [editor, pendingAttachments, isSending, onSubmit, clear, effectiveEngineKind])
 
   // Keep the ref in sync on every render
   submitRef.current = submit
@@ -591,6 +655,8 @@ export function useMessageComposer(options: UseMessageComposerOptions): MessageC
     slashLoading: slash.loading,
     insertSlashCommand,
     submit,
+    setDraft,
+    clear,
     addAttachments,
     removeAttachment,
     dragHandlers,

@@ -291,6 +291,11 @@ export const SessionPanel = React.memo(function SessionPanel({
   const isResumeState = state === 'idle' || state === 'stopped' || state === 'error'
 
   const messageQueue = useMessageQueue({ sessionId })
+  const inputBarRef = useRef<SessionInputBarHandle>(null)
+  const lastSubmittedMessageRef = useRef<UserMessageContent | null>(null)
+  useEffect(() => {
+    lastSubmittedMessageRef.current = null
+  }, [sessionId])
 
   const handleSendOrQueue = useCallback(
     async (message: UserMessageContent): Promise<boolean> => {
@@ -299,10 +304,35 @@ export const SessionPanel = React.memo(function SessionPanel({
         return true
       }
       const handler = isResumeState ? capabilities.resume : capabilities.send
+      lastSubmittedMessageRef.current = message
       return handler(message)
     },
     [isProcessing, messageQueue, isResumeState, capabilities]
   )
+
+  const handleRetryLastMessage = useCallback(async () => {
+    const lastSubmittedMessage = lastSubmittedMessageRef.current
+    if (state !== 'error' || !lastSubmittedMessage) {
+      capabilities.retry?.()
+      return
+    }
+    const result = await capabilities.resume(lastSubmittedMessage)
+    if (result !== false) {
+      inputBarRef.current?.clearDraft()
+    }
+  }, [state, capabilities])
+  const canRetryLastMessage = state === 'error' && lastSubmittedMessageRef.current !== null
+  const onRetry = (capabilities.retry || canRetryLastMessage)
+    ? handleRetryLastMessage
+    : undefined
+
+  const handleEditUserMessage = useCallback((content: UserMessageContent) => {
+    inputBarRef.current?.setDraft(content)
+  }, [])
+
+  const handleResendUserMessage = useCallback((content: UserMessageContent) => {
+    void handleSendOrQueue(content)
+  }, [handleSendOrQueue])
 
   // ─── Artifacts Tab ───────────────────────────────────────────────────────
   // Artifacts are now computed inside ArtifactViewerProvider (self-subscribing).
@@ -431,7 +461,6 @@ export const SessionPanel = React.memo(function SessionPanel({
   // Project-file drags (application/x-opencow-file from sidebar) are handled
   // separately by ContextFileDragZone in IssueDetailView — not intercepted here.
   // ---------------------------------------------------------------------------
-  const inputBarRef = useRef<SessionInputBarHandle>(null)
   const [isConsoleDragOver, setIsConsoleDragOver] = useState(false)
   const consoleDragCounterRef = useRef(0)
 
@@ -592,7 +621,7 @@ export const SessionPanel = React.memo(function SessionPanel({
                       error={session.error ?? null}
                       stopReason={session.stopReason}
                       onStop={capabilities.stop}
-                      onRetry={capabilities.retry}
+                      onRetry={onRetry}
                       onNewSession={capabilities.newSession}
                       onNewBlankSession={capabilities.newBlankSession}
                       onSearchResultSelect={handleSearchResultSelect}
@@ -692,6 +721,8 @@ export const SessionPanel = React.memo(function SessionPanel({
                     sessionState={state}
                     stopReason={session.stopReason}
                     onSendAnswer={isReadOnly ? undefined : handleSendOrQueue}
+                    onEditUserMessage={isReadOnly ? undefined : handleEditUserMessage}
+                    onResendUserMessage={isReadOnly ? undefined : handleResendUserMessage}
                     onContextualQuestionChange={handleContextualQuestionChange}
                     issueId={issueId}
                     footerNode={

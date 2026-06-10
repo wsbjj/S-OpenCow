@@ -3,10 +3,11 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { ChatHeroInput } from '../../../src/renderer/components/ChatView/ChatHeroInput'
+import type { ChatHeroInputHandle } from '../../../src/renderer/components/ChatView/ChatHeroInput'
 import type { ChatModelOption } from '../../../src/renderer/lib/chatModelOptions'
 
 const modelOptions: ChatModelOption[] = [
@@ -76,6 +77,26 @@ describe('ChatHeroInput', () => {
     const listbox = await screen.findByRole('listbox', { name: 'Switch model' })
     await waitFor(() => {
       expect(listbox.parentElement).toHaveStyle({ bottom: '72px' })
+    })
+  })
+
+  it('can load a user message draft from an external action', async () => {
+    const onSend = vi.fn().mockResolvedValue(true)
+    const ref = React.createRef<ChatHeroInputHandle>()
+    render(<ChatHeroInput ref={ref} onSend={onSend} />)
+
+    const editor = await screen.findByRole('textbox')
+    act(() => {
+      ref.current?.setDraft('Edited prompt')
+    })
+
+    await waitFor(() => {
+      expect(editor).toHaveTextContent('Edited prompt')
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /send message/i }))
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith('Edited prompt')
     })
   })
 })

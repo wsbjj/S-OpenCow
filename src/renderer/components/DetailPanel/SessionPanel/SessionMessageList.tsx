@@ -78,6 +78,10 @@ interface SessionMessageListProps {
   stopReason?: SessionStopReason | null
   /** Send callback — used by interactive AskUserQuestion cards to submit answers */
   onSendAnswer?: (message: UserMessageContent) => Promise<boolean>
+  /** Load a previous user message into the current input for editing. */
+  onEditUserMessage?: (message: UserMessageContent) => void
+  /** Send a previous user message again. */
+  onResendUserMessage?: (message: UserMessageContent) => void
   /** Display variant: 'cli' (default, "> " prefix + monospace) or 'chat' (right-aligned bubble) */
   variant?: MessageListVariant
   /**
@@ -221,7 +225,7 @@ const PROGRAMMATIC_NAV_LOCK_MS = 350
  * switch — giving us a clean state.
  */
 export const SessionMessageList = memo(forwardRef<SessionMessageListHandle, SessionMessageListProps>(
-function SessionMessageList({ sessionId, messages: externalMessages, sessionState, stopReason, onSendAnswer, variant = 'cli', onContextualQuestionChange, footerNode, issueId }: SessionMessageListProps, ref): React.JSX.Element {
+function SessionMessageList({ sessionId, messages: externalMessages, sessionState, stopReason, onSendAnswer, onEditUserMessage, onResendUserMessage, variant = 'cli', onContextualQuestionChange, footerNode, issueId }: SessionMessageListProps, ref): React.JSX.Element {
   // ── Perf: measure full render cycle of this component ──────────────
   const _renderT0 = perfEnabled() ? performance.now() : 0
 
@@ -778,8 +782,24 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
             tailMsgId = undefined
           } else {
             element = variant === 'chat'
-              ? <ChatBubbleUserMessage key={msg.id} id={msg.id} content={msg.content} />
-              : <UserMessage key={msg.id} id={msg.id} content={msg.content} />
+              ? (
+                  <ChatBubbleUserMessage
+                    key={msg.id}
+                    id={msg.id}
+                    content={msg.content}
+                    onEdit={onEditUserMessage}
+                    onResend={onResendUserMessage}
+                  />
+                )
+              : (
+                  <UserMessage
+                    key={msg.id}
+                    id={msg.id}
+                    content={msg.content}
+                    onEdit={onEditUserMessage}
+                    onResend={onResendUserMessage}
+                  />
+                )
           }
           break
         }
@@ -824,7 +844,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
         </div>
       </div>
     )
-  }, [variant, sessionId, showTurnDiffDialog])
+  }, [variant, sessionId, onEditUserMessage, onResendUserMessage, showTurnDiffDialog])
 
   // Initial scroll position — always start at the last item so the first
   // paint shows content near the bottom, minimising visual flash before the

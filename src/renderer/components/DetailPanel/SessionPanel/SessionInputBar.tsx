@@ -38,6 +38,10 @@ interface SessionInputBarProps {
 export interface SessionInputBarHandle {
   /** Process and attach files (images, PDFs, text) to the pending message. */
   addAttachments: (files: File[]) => Promise<void>
+  /** Replace the current draft with an existing user message. */
+  setDraft: (content: UserMessageContent) => void
+  /** Clear the current draft after an external resend succeeds. */
+  clearDraft: () => void
 }
 
 /**
@@ -62,6 +66,8 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
     slashLoading,
     insertSlashCommand,
     submit,
+    setDraft,
+    clear,
     addAttachments,
     removeAttachment,
     dragHandlers,
@@ -79,7 +85,9 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
   /* -- Expose addAttachments to parent (for console-wide file drop zone) -- */
   useImperativeHandle(ref, () => ({
     addAttachments,
-  }), [addAttachments])
+    setDraft,
+    clearDraft: clear,
+  }), [addAttachments, setDraft, clear])
 
   /* -- Stop mode: send button transforms to stop action during processing -- */
   const isStopMode = sessionControl?.isProcessing === true

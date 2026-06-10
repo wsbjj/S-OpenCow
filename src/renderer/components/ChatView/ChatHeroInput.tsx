@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { EditorContent } from '@tiptap/react'
 import { useTranslation } from 'react-i18next'
 import { ArrowUp, AtSign, Paperclip, Loader2 } from 'lucide-react'
@@ -31,6 +31,13 @@ interface ChatHeroInputProps {
   registerAsChatTabInput?: boolean
 }
 
+export interface ChatHeroInputHandle {
+  /** Replace the current draft with an existing user message. */
+  setDraft: (content: UserMessageContent) => void
+  /** Clear the current draft. */
+  clearDraft: () => void
+}
+
 /**
  * ChatHeroInput — A page-level hero input for the Agent Chat landing page.
  *
@@ -42,7 +49,7 @@ interface ChatHeroInputProps {
  * Both share `useMessageComposer` for input logic (single source of truth),
  * but their visual presentation is entirely independent (separation of concerns).
  */
-export function ChatHeroInput({
+export const ChatHeroInput = forwardRef<ChatHeroInputHandle, ChatHeroInputProps>(function ChatHeroInput({
   onSend,
   disabled = false,
   placeholder,
@@ -50,7 +57,7 @@ export function ChatHeroInput({
   sessionControl,
   modelSelection,
   registerAsChatTabInput = false,
-}: ChatHeroInputProps): React.JSX.Element {
+}: ChatHeroInputProps, ref): React.JSX.Element {
   const { t } = useTranslation('sessions')
   const { t: tCommon } = useTranslation('common')
   const { projectPath } = useProjectScope()
@@ -64,6 +71,8 @@ export function ChatHeroInput({
     isDisabled,
     isDragOver,
     submit,
+    setDraft,
+    clear,
     removeAttachment,
     dragHandlers,
     fileInputRef,
@@ -75,6 +84,11 @@ export function ChatHeroInput({
     onSubmit: onSend,
     engineKind,
   })
+
+  useImperativeHandle(ref, () => ({
+    setDraft,
+    clearDraft: clear,
+  }), [setDraft, clear])
 
   useEffect(() => {
     if (!registerAsChatTabInput || !editor) return
@@ -243,4 +257,4 @@ export function ChatHeroInput({
       </div>
     </div>
   )
-}
+})

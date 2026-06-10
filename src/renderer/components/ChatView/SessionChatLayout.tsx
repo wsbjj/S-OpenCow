@@ -14,6 +14,7 @@
  *     • ChatHeroInput
  */
 
+import { useCallback, useRef } from 'react'
 import { useSessionMessages } from '@/hooks/useSessionMessages'
 import { SessionMessageList } from '@/components/DetailPanel/SessionPanel/SessionMessageList'
 import { StreamingFooter } from '@/components/DetailPanel/SessionPanel/StreamingFooter'
@@ -22,6 +23,7 @@ import { TodoStatusPill } from '@/components/DetailPanel/SessionPanel/TodoWidget
 import { ContentViewerProvider } from '@/components/DetailPanel/SessionPanel/ContentViewerContext'
 import { ConnectedContentViewer } from '@/components/DetailPanel/SessionPanel/ConnectedContentViewer'
 import { ChatHeroInput } from './ChatHeroInput'
+import type { ChatHeroInputHandle } from './ChatHeroInput'
 import { cn } from '@/lib/utils'
 import type { SessionSnapshot, UserMessageContent } from '@shared/types'
 import type { UseMessageQueueReturn } from '@/hooks/useMessageQueue'
@@ -91,6 +93,15 @@ export function SessionChatLayout({
   // Keep message lazy-load side effect for archived/resumed sessions.
   useSessionMessages(session.id)
   const latestTodos = useCommandStore((s) => selectLatestOpenTodos(s, session.id))
+  const inputRef = useRef<ChatHeroInputHandle>(null)
+
+  const handleEditUserMessage = useCallback((message: UserMessageContent) => {
+    inputRef.current?.setDraft(message)
+  }, [])
+
+  const handleResendUserMessage = useCallback((message: UserMessageContent) => {
+    void onSendOrQueue(message)
+  }, [onSendOrQueue])
 
   const controlsWrapperCn = controlsMaxW
     ? cn('w-full mx-auto shrink-0', controlsMaxW, controlsClassName)
@@ -106,6 +117,8 @@ export function SessionChatLayout({
           sessionState={session.state}
           stopReason={session.stopReason}
           onSendAnswer={onSendOrQueue}
+          onEditUserMessage={handleEditUserMessage}
+          onResendUserMessage={handleResendUserMessage}
           variant="chat"
           footerNode={footerNode}
         />
@@ -149,6 +162,7 @@ export function SessionChatLayout({
                Stop action is integrated into the send button during processing. */}
           <div className="pb-3 pt-1">
             <ChatHeroInput
+              ref={inputRef}
               onSend={onSendOrQueue}
               placeholder={isPaused ? pausedPlaceholder : undefined}
               engineKind={modelSelection?.value?.engineKind ?? session.engineKind}

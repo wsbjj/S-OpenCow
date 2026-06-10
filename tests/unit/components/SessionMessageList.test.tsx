@@ -134,6 +134,28 @@ describe('SessionMessageList', () => {
     expect(writeClipboardText).toHaveBeenCalledWith('Fix the bug')
   })
 
+  it('exposes edit and resend actions for user messages', async () => {
+    const user = userEvent.setup()
+    const onEditUserMessage = vi.fn()
+    const onResendUserMessage = vi.fn().mockResolvedValue(true)
+    const content = textBlocks('Fix the bug')
+
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[makeUserMsg(content, 'user-actions')]}
+        onEditUserMessage={onEditUserMessage}
+        onResendUserMessage={onResendUserMessage}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /Edit user prompt/i }))
+    expect(onEditUserMessage).toHaveBeenCalledWith(content)
+
+    await user.click(screen.getByRole('button', { name: /Resend user message/i }))
+    expect(onResendUserMessage).toHaveBeenCalledWith(content)
+  })
+
   it('copies assistant response text from the copy button', async () => {
     const user = userEvent.setup()
     render(

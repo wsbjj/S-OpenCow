@@ -3,10 +3,11 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { SessionInputBar } from '../../../src/renderer/components/DetailPanel/SessionPanel/SessionInputBar'
+import type { SessionInputBarHandle } from '../../../src/renderer/components/DetailPanel/SessionPanel/SessionInputBar'
 import type { ChatModelOption } from '../../../src/renderer/lib/chatModelOptions'
 
 const modelOptions: ChatModelOption[] = [
@@ -102,6 +103,26 @@ describe('SessionInputBar', () => {
     await userEvent.keyboard('{Enter}')
     await waitFor(() => {
       expect(editor).toHaveTextContent('hello')
+    })
+  })
+
+  it('can load a user message draft from an external action', async () => {
+    const onSend = vi.fn().mockResolvedValue(true)
+    const ref = React.createRef<SessionInputBarHandle>()
+    render(<SessionInputBar ref={ref} onSend={onSend} disabled={false} />)
+    const editor = await getEditor()
+
+    act(() => {
+      ref.current?.setDraft('Edited prompt')
+    })
+
+    await waitFor(() => {
+      expect(editor).toHaveTextContent('Edited prompt')
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /send message/i }))
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith('Edited prompt')
     })
   })
 
