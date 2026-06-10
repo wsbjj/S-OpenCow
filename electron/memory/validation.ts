@@ -38,8 +38,6 @@ const VALID_SOURCES = new Set<string>([
   'schedule', 'capability', 'user_explicit', 'ai_synthesis',
 ])
 
-const VALID_CONFIRMED_BY = new Set<string | null>([null, 'user', 'auto'])
-
 // ─── Type Guards ───────────────────────────────────────────────────
 
 export function isValidMemoryScope(v: unknown): v is MemoryScope {

@@ -11,7 +11,7 @@
  *   - snake_case DB columns, camelCase domain types
  */
 
-import type { Kysely } from 'kysely'
+import type { DeleteQueryBuilder, DeleteResult, Kysely, SelectQueryBuilder } from 'kysely'
 import type { Database } from '../../database/types'
 import type { ManagedCapabilityCategory, MarketplaceId } from '@shared/types'
 import { createLogger } from '../../platform/logger'
@@ -88,7 +88,7 @@ export class PackageRegistry {
    */
   async unregisterByPrefix(prefix: string, query: PackageQuery): Promise<boolean> {
     let qb = this.db.deleteFrom('installed_packages').where('prefix', '=', prefix)
-    qb = applyQueryFilters(qb, query)
+    qb = applyDeleteFilters(qb, query)
     const result = await qb.executeTakeFirst()
     return BigInt(result.numDeletedRows ?? 0) > 0n
   }
@@ -98,7 +98,7 @@ export class PackageRegistry {
    */
   async findByPrefix(prefix: string, query: PackageQuery): Promise<InstalledPackageRecord | null> {
     let qb = this.db.selectFrom('installed_packages').selectAll().where('prefix', '=', prefix)
-    qb = applyQueryFilters(qb, query)
+    qb = applySelectFilters(qb, query)
     const row = await qb.executeTakeFirst()
     return row ? rowToRecord(row) : null
   }
@@ -108,7 +108,7 @@ export class PackageRegistry {
    */
   async findBySlug(slug: string, query: PackageQuery): Promise<InstalledPackageRecord | null> {
     let qb = this.db.selectFrom('installed_packages').selectAll().where('slug', '=', slug)
-    qb = applyQueryFilters(qb, query)
+    qb = applySelectFilters(qb, query)
     const row = await qb.executeTakeFirst()
     return row ? rowToRecord(row) : null
   }
@@ -119,7 +119,7 @@ export class PackageRegistry {
    */
   async list(query: PackageQuery): Promise<InstalledPackageRecord[]> {
     let qb = this.db.selectFrom('installed_packages').selectAll()
-    qb = applyQueryFilters(qb, query)
+    qb = applySelectFilters(qb, query)
     const rows = await qb.orderBy('installed_at', 'desc').execute()
     return rows.map(rowToRecord)
   }
@@ -146,7 +146,7 @@ export class PackageRegistry {
     let qb = this.db
       .selectFrom('installed_packages')
       .select((eb) => eb.fn.countAll<number>().as('count'))
-    qb = applyQueryFilters(qb, query)
+    qb = applySelectFilters(qb, query)
     const result = await qb.executeTakeFirst()
     return (result as { count: number } | undefined)?.count ?? 0
   }
@@ -155,6 +155,8 @@ export class PackageRegistry {
 // ─── Row ↔ Record mapping ────────────────────────────────────────────────
 
 type InstalledPackageRow = Database['installed_packages']
+type InstalledPackageSelectBuilder<O> = SelectQueryBuilder<Database, 'installed_packages', O>
+type InstalledPackageDeleteBuilder = DeleteQueryBuilder<Database, 'installed_packages', DeleteResult>
 
 function rowToRecord(row: InstalledPackageRow): InstalledPackageRecord {
   let capabilities: Partial<Record<ManagedCapabilityCategory, string[]>> = {}
@@ -207,23 +209,33 @@ function recordToRow(record: InstalledPackageRecord): InstalledPackageRow {
  * Uses the same pattern as StateRepository: global scope uses project_id = '',
  * project scope uses the actual projectId.
  *
- * Note: `as any` casts are needed because Kysely's SelectQueryBuilder and
- * DeleteQueryBuilder share `.where()` semantically but have incompatible
- * generic signatures. This is a known Kysely limitation for shared query helpers.
- * The column names are statically validated by the DB schema at migration time.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function applyQueryFilters<T extends { where: (...args: any[]) => T }>(
-  qb: T,
+function applySelectFilters<O>(
+  qb: InstalledPackageSelectBuilder<O>,
   query: PackageQuery,
-): T {
+): InstalledPackageSelectBuilder<O> {
   if (query.scope) {
-    qb = (qb as any).where('scope', '=', query.scope)
+    qb = qb.where('scope', '=', query.scope)
   }
   if (query.projectId) {
-    qb = (qb as any).where('project_id', '=', query.projectId)
+    qb = qb.where('project_id', '=', query.projectId)
   } else if (query.scope === 'global') {
-    qb = (qb as any).where('project_id', '=', '')
+    qb = qb.where('project_id', '=', '')
+  }
+  return qb
+}
+
+function applyDeleteFilters(
+  qb: InstalledPackageDeleteBuilder,
+  query: PackageQuery,
+): InstalledPackageDeleteBuilder {
+  if (query.scope) {
+    qb = qb.where('scope', '=', query.scope)
+  }
+  if (query.projectId) {
+    qb = qb.where('project_id', '=', query.projectId)
+  } else if (query.scope === 'global') {
+    qb = qb.where('project_id', '=', '')
   }
   return qb
 }

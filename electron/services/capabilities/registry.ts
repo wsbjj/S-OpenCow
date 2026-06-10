@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import type { CapabilityScanner, ScanContext } from './types'
+import type { CapabilityScanner } from './types'
 import type { CapabilityCategory } from '@shared/types'
 
 // Scanner imports — added as each scanner is created

@@ -223,7 +223,7 @@ function mapFileChangeItem(item: FileChangeItem, stage: CodexThreadItemStage): S
 }
 
 function mapTodoListItem(item: TodoListItem): SDKContentBlock[] {
-  const todos: CodexTodoItem[] = item.items.map((todo, idx) => {
+  const todos: CodexTodoItem[] = item.items.map((todo) => {
     if (todo.completed) {
       return { content: todo.text, status: 'completed' }
     }

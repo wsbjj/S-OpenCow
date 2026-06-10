@@ -21,7 +21,7 @@
  *   - Thread-safe caching per fetch variant (independent cache entries)
  */
 
-import { fetch as undiciFetch } from 'undici'
+import { fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
 import { createProxyDispatcher } from './proxyDispatcher'
 import { createLogger } from '../platform/logger'
 
@@ -100,7 +100,7 @@ export class ProxyFetchFactory {
       log.info(`[IMBot] Proxy configured: ${proxyUrl}`)
       fetchFn = ((input: RequestInfo | URL, init?: RequestInit) =>
         undiciFetch(typeof input === 'string' ? input : input.toString(), {
-          ...(stripSignal(init) as any),
+          ...(stripSignal(init) as Omit<UndiciRequestInit, 'signal'>),
           dispatcher,
         })
       ) as unknown as typeof globalThis.fetch
@@ -134,7 +134,7 @@ export class ProxyFetchFactory {
       const dispatcher = createProxyDispatcher(proxyUrl)
       fetchFn = ((input: RequestInfo | URL, init?: RequestInit) =>
         undiciFetch(typeof input === 'string' ? input : input.toString(), {
-          ...(init as any),
+          ...(init as UndiciRequestInit),
           dispatcher,
         })
       ) as unknown as typeof globalThis.fetch

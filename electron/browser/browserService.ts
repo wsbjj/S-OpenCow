@@ -22,7 +22,7 @@ import type {
 import { BrowserStore } from './browserStore'
 import { BrowserActionExecutor } from './browserActionExecutor'
 import { BrowserActionDecorator } from './browserActionDecorator'
-import { CookiePersistenceInterceptor, type CookiePersistenceConfig } from './cookiePersistenceInterceptor'
+import { CookiePersistenceInterceptor } from './cookiePersistenceInterceptor'
 import { createLogger } from '../platform/logger'
 import {
   defaultBrowserStatePolicyForSource,

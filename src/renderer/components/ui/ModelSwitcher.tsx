@@ -14,6 +14,7 @@ export interface ModelSwitcherProps {
   onChange: (selection: SetSessionModelInput) => void
   disabled?: boolean
   size?: 'sm' | 'md'
+  dropdownPosition?: 'above' | 'below'
   className?: string
 }
 
@@ -33,6 +34,7 @@ export function ModelSwitcher({
   onChange,
   disabled = false,
   size = 'md',
+  dropdownPosition = 'below',
   className,
 }: ModelSwitcherProps): React.JSX.Element | null {
   const { t } = useTranslation('sessions')
@@ -64,7 +66,7 @@ export function ModelSwitcher({
     <PillDropdown
       open={open}
       onOpenChange={setOpen}
-      position="below"
+      position={dropdownPosition}
       align="left"
       className={className}
       dropdownClassName="w-[min(340px,calc(100vw-24px))]"

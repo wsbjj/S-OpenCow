@@ -242,6 +242,7 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
             onChange={modelSelection.onChange}
             disabled={modelSelection.disabled}
             size="sm"
+            dropdownPosition="above"
             className="shrink-0"
           />
         )}

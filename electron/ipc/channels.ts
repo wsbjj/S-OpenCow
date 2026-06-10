@@ -56,6 +56,8 @@ import { projectStartSessionInput } from '../command/sessionStartInputProjector'
 import { FileContentAccessService } from '../services/fileAccess'
 import { ProjectFileOperationService } from '../services/fileAccess'
 import { isPathWithinBase } from '../security/pathBounds'
+import { detectLanguage } from '@shared/fileUtils'
+import { SKILL_BUNDLE_FILENAME } from '../services/capabilityCenter/capabilityStore'
 
 const QUIET_CHANNELS = new Set<string>(['log:write'])
 const IPC_VERBOSE_LOG_ENABLED =
@@ -684,7 +686,6 @@ export function registerIPCHandlers(deps: IPCDeps): void {
   registerHandler('read-capability-source', async (sourcePath, projectPath) => {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
-    const { detectLanguage } = await import('@shared/fileUtils')
 
     const virtual = deps.capabilityCenter?.readVirtualCapabilitySource(sourcePath)
     if (virtual) return virtual
@@ -837,9 +838,6 @@ export function registerIPCHandlers(deps: IPCDeps): void {
 
     // Bundle file listing — lists sibling files in a skill bundle directory
     registerHandler('capability:bundle-files', async (filePath, projectId) => {
-      const { SKILL_BUNDLE_FILENAME } = await import(
-        '../services/capabilityCenter/capabilityStore'
-      )
       return fileContentAccess.listCapabilityBundleFiles({
         skillFilePath: filePath,
         projectId,
@@ -849,7 +847,6 @@ export function registerIPCHandlers(deps: IPCDeps): void {
     })
 
     registerHandler('capability:view-bundle-file-content', async (input) => {
-      const { SKILL_BUNDLE_FILENAME } = await import('../services/capabilityCenter/capabilityStore')
       return fileContentAccess.readCapabilityBundleFile({
         input,
         bundleFileName: SKILL_BUNDLE_FILENAME,

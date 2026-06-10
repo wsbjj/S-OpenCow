@@ -8,7 +8,6 @@ import type {
 import {
   bucketForEngineEventType,
   bucketForTransitionStatus,
-  type EventSubscriptionBucket,
 } from './eventSignalCatalog'
 
 export interface EventSubscriptionPolicy {

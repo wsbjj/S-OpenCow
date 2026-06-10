@@ -214,6 +214,7 @@ export function ChatHeroInput({
             onChange={modelSelection.onChange}
             disabled={modelSelection.disabled}
             size="md"
+            dropdownPosition="above"
             className="ml-auto mr-1 min-w-0"
           />
         )}

@@ -15,6 +15,7 @@ export default tseslint.config(
       '.worktrees/**',
       '.claude/**',
       '.opencow-dev/**',
+      'openclaw-lark/**',
       'coverage/**',
       '*.config.{js,mjs,cjs,ts}',
       'scripts/**',

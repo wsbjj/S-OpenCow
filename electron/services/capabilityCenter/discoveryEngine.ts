@@ -22,7 +22,6 @@ import type {
   CapabilitySnapshot,
   CapabilityDiagnostic,
   CapabilityEligibility,
-  CapabilityMountInfo,
 } from '@shared/types'
 import type { CapabilityStore, StoreEntry, DocumentStoreEntry, ConfigStoreEntry } from './capabilityStore'
 import type { StateRepository, CapabilityToggle, ImportRecord, DistributionRecord } from './stateRepository'
