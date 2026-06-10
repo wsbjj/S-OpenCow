@@ -9,6 +9,7 @@
  */
 
 import { memo } from 'react'
+import { UserRound } from 'lucide-react'
 import { LinkifiedText } from '@/components/ui/LinkifiedText'
 import { ContentBlockRenderer } from './ContentBlockRenderer'
 import { MessageCopyButton } from './MessageCopyButton'
@@ -102,7 +103,7 @@ function renderUserContentBlocks(
 }
 
 // ---------------------------------------------------------------------------
-// CLI variant — monospace with "> " prefix
+// CLI variant — monospace with a compact user icon prefix
 // ---------------------------------------------------------------------------
 
 export const UserMessage = memo(function UserMessage({ id, content }: { id: string; content: ContentBlock[] }) {
@@ -112,7 +113,14 @@ export const UserMessage = memo(function UserMessage({ id, content }: { id: stri
 
   return (
     <div data-msg-id={id} data-msg-role="user" className="relative flex gap-2 py-1 -ml-3 pl-3 before:absolute before:left-0 before:top-[6px] before:bottom-[6px] before:w-0.5 before:bg-[hsl(var(--primary)/0.2)]">
-      <span className="text-[hsl(var(--muted-foreground))] font-mono text-sm shrink-0 select-none leading-5" aria-hidden="true">{'>'}</span>
+      <span
+        data-testid="user-message-icon"
+        className="mt-0.5 flex h-4 w-4 shrink-0 select-none items-center justify-center text-[hsl(var(--muted-foreground))]"
+        role="img"
+        aria-label="User message"
+      >
+        <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
       <div className="min-w-0 flex-1">
         {hasRichContent ? (
           <div className="text-sm font-mono text-[hsl(var(--foreground))] break-words min-w-0 leading-5">

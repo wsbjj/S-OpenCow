@@ -200,6 +200,9 @@ const SENDABLE_STATES: ReadonlySet<ManagedSessionState> = new Set<ManagedSession
   'idle', 'awaiting_input', 'awaiting_question', 'stopped', 'error',
 ])
 
+/** Briefly ignore Virtuoso range echoes after an explicit nav click. */
+const PROGRAMMATIC_NAV_LOCK_MS = 350
+
 // ---------------------------------------------------------------------------
 // SessionMessageList — Virtuoso-powered, zero content-visibility
 // ---------------------------------------------------------------------------
@@ -510,12 +513,42 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
   // IntersectionObserver.  Native to virtualization, zero DOM observation.
   // ---------------------------------------------------------------------------
   const [activeNavId, setActiveNavId] = useState<string | null>(null)
+  const ignoreRangeChangedUntilRef = useRef(0)
 
   // Build a lookup: msgId → navAnchor (for fast matching in rangeChanged)
   const navAnchorSet = useMemo(
     () => new Set(navAnchors.map((a) => a.msgId)),
     [navAnchors],
   )
+
+  const getFirstVisibleAnchorId = useCallback((): string | null => {
+    const scroller = scrollerRef.current
+    if (!scroller) return null
+
+    const scrollerRect = scroller.getBoundingClientRect()
+    if (scrollerRect.height <= 0) return null
+
+    let firstVisibleMsgId: string | null = null
+    let firstVisibleTop = Number.POSITIVE_INFINITY
+    const nodes = scroller.querySelectorAll<HTMLElement>('[data-msg-id]')
+
+    nodes.forEach((node) => {
+      const msgId = node.dataset.msgId
+      if (!msgId || !navAnchorSet.has(msgId)) return
+
+      const rect = node.getBoundingClientRect()
+      const isVisible = rect.bottom > scrollerRect.top + 1 && rect.top < scrollerRect.bottom - 1
+      if (!isVisible) return
+
+      const top = Math.max(rect.top, scrollerRect.top)
+      if (top < firstVisibleTop) {
+        firstVisibleMsgId = msgId
+        firstVisibleTop = top
+      }
+    })
+
+    return firstVisibleMsgId
+  }, [navAnchorSet])
 
   /** Extract the first message ID from a MessageGroup */
   const getGroupMsgId = useCallback((group: MessageGroup): string =>
@@ -542,6 +575,14 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
   }, [messageGroups, getGroupMsgId])
 
   const handleRangeChanged = useCallback(({ startIndex, endIndex }: ListRange) => {
+    if (Date.now() < ignoreRangeChangedUntilRef.current) return
+
+    const visibleAnchorId = getFirstVisibleAnchorId()
+    if (visibleAnchorId) {
+      startTransition(() => { setActiveNavId(visibleAnchorId) })
+      return
+    }
+
     // Walk from startIndex to find the first group whose msgId is a nav anchor.
     // This represents the topmost visible conversation turn — the most intuitive
     // "you are here" indicator when scrolling.
@@ -557,7 +598,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
         return
       }
     }
-  }, [firstItemIndex, messageGroups, navAnchorSet, getGroupMsgId])
+  }, [firstItemIndex, messageGroups, navAnchorSet, getGroupMsgId, getFirstVisibleAnchorId])
 
   // ---------------------------------------------------------------------------
   // Contextual question — derived from the active nav anchor
@@ -660,8 +701,10 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
     // Disengage follow mode BEFORE scrolling, otherwise handleTotalHeightChanged
     // and handleFollowOutput will fight the scroll back to bottom.
     disengageFollow()
-    virtuosoRef.current?.scrollToIndex({ index: firstItemIndex, behavior: 'smooth', align: 'start' })
-  }, [disengageFollow, firstItemIndex, virtuosoRef])
+    setActiveNavId(navAnchors[0]?.msgId ?? null)
+    ignoreRangeChangedUntilRef.current = Date.now() + PROGRAMMATIC_NAV_LOCK_MS
+    virtuosoRef.current?.scrollToIndex({ index: 0, behavior: 'smooth', align: 'start' })
+  }, [disengageFollow, navAnchors, virtuosoRef])
 
   const scrollToMessage = useCallback((msgId: string) => {
     // Find the group index containing this message
@@ -676,6 +719,8 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
       // Disengage follow mode before scrolling — otherwise handleTotalHeightChanged
       // stays in 'following' and fights the anchor scroll back to bottom.
       disengageFollow()
+      setActiveNavId(msgId)
+      ignoreRangeChangedUntilRef.current = Date.now() + PROGRAMMATIC_NAV_LOCK_MS
       // Use 'auto' (instant) instead of 'smooth' — Virtuoso's smooth scroll
       // commits to a target position based on **estimated** item heights.
       // For off-screen items with variable content, the estimate can drift,
@@ -683,7 +728,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
       // of at the top.  Instant scroll lets Virtuoso render the target area
       // first and measure real heights before positioning, so alignment is
       // pixel-perfect.  The scroll-flash highlight provides visual feedback.
-      virtuosoRef.current?.scrollToIndex({ index: firstItemIndex + groupIndex, behavior: 'auto', align: 'start' })
+      virtuosoRef.current?.scrollToIndex({ index: groupIndex, behavior: 'auto', align: 'start' })
     }
 
     // After scrolling, apply highlight flash on the target element.
@@ -703,7 +748,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
       target.addEventListener('animationend', cleanup, { once: true })
       setTimeout(cleanup, 1500)
     }, SCROLL_SETTLE_MS)
-  }, [firstItemIndex, messageGroups, disengageFollow])
+  }, [messageGroups, disengageFollow])
 
   useImperativeHandle(ref, () => ({ scrollToBottom, scrollToMessage }), [scrollToBottom, scrollToMessage])
 
@@ -785,7 +830,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
   // paint shows content near the bottom, minimising visual flash before the
   // mount-time safeguard scrolls to the absolute bottom.
   const initialTopMostItemIndex = useMemo(
-    () => messageGroups.length > 0 ? firstItemIndex + messageGroups.length - 1 : firstItemIndex,
+    () => messageGroups.length > 0 ? messageGroups.length - 1 : 0,
     [], // eslint-disable-line react-hooks/exhaustive-deps -- only on mount
   )
 

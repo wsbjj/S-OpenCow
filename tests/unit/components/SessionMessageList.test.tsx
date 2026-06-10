@@ -3,26 +3,57 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { SessionMessageList } from '../../../src/renderer/components/DetailPanel/SessionPanel/SessionMessageList'
 import type { ManagedSessionMessage, ManagedSessionState, ContentBlock, SystemEvent } from '../../../src/shared/types'
 
+const virtuosoMock = vi.hoisted(() => ({
+  props: undefined as any,
+  scrollTo: vi.fn(),
+  scrollToIndex: vi.fn(),
+}))
+
 // react-virtuoso's Virtuoso component requires real DOM dimensions to render items.
 // In jsdom the container has 0 dimensions so items are never measured / rendered.
 // Mock it with a simple pass-through renderer.
-vi.mock('react-virtuoso', () => ({
-  Virtuoso: ({ data, itemContent, components }: any) => {
+vi.mock('react-virtuoso', async () => {
+  const React = await import('react')
+
+  const Virtuoso = React.forwardRef(function MockVirtuoso(
+    { data, itemContent, components, scrollerRef, ...props }: any,
+    ref: any,
+  ) {
+    const hostRef = React.useRef<HTMLDivElement | null>(null)
+
+    React.useImperativeHandle(ref, () => ({
+      scrollTo: virtuosoMock.scrollTo,
+      scrollToIndex: virtuosoMock.scrollToIndex,
+    }), [])
+
+    React.useLayoutEffect(() => {
+      virtuosoMock.props = { data, itemContent, components, scrollerRef, ...props }
+    })
+
+    React.useLayoutEffect(() => {
+      scrollerRef?.(hostRef.current)
+      return () => { scrollerRef?.(null) }
+    }, [scrollerRef])
+
     const ListComp = components?.List
     const list = data?.map((item: any, index: number) => (
       <div key={index}>{itemContent(index, item)}</div>
     ))
-    return ListComp
+    const listNode = ListComp
       ? <ListComp role="list" aria-label="Session messages">{list}</ListComp>
       : <div role="list" aria-label="Session messages">{list}</div>
-  },
-}))
+
+    return <div ref={hostRef}>{listNode}</div>
+  })
+
+  return { Virtuoso }
+})
 
 const writeClipboardText = vi.fn()
 
@@ -61,17 +92,21 @@ function makeSystemMsg(event: SystemEvent, id = 'sys-1'): ManagedSessionMessage 
 describe('SessionMessageList', () => {
   beforeEach(() => {
     writeClipboardText.mockReset()
+    virtuosoMock.props = undefined
+    virtuosoMock.scrollTo.mockReset()
+    virtuosoMock.scrollToIndex.mockReset()
   })
 
-  it('renders user messages with ">" prefix', () => {
-    render(
+  it('renders user messages with an icon prefix', () => {
+    const { container } = render(
       <SessionMessageList
         sessionId="test-session"
         messages={[makeUserMsg(textBlocks('Fix the bug'))]}
       />
     )
     expect(screen.getByText('Fix the bug')).toBeInTheDocument()
-    expect(screen.getByText('>')).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="user-message-icon"]')).toBeInTheDocument()
+    expect(screen.queryByText('>')).toBeNull()
   })
 
   it('renders assistant messages with markdown', () => {
@@ -265,6 +300,93 @@ describe('SessionMessageList', () => {
     )
     const list = screen.getByRole('list')
     expect(list.children).toHaveLength(3)
+  })
+
+  it('uses a relative Virtuoso index for the initial bottom position', () => {
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[
+          makeUserMsg(textBlocks('One'), 'u-1'),
+          makeAssistantMsg(textBlocks('Two'), { id: 'a-1' }),
+          makeUserMsg(textBlocks('Three'), 'u-2'),
+          makeAssistantMsg(textBlocks('Four'), { id: 'a-2' }),
+        ]}
+      />
+    )
+
+    expect(virtuosoMock.props.initialTopMostItemIndex).toBe(3)
+  })
+
+  it('scrolls message navigation anchors using relative Virtuoso indexes', async () => {
+    const user = userEvent.setup()
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[
+          makeUserMsg(textBlocks('One'), 'u-1'),
+          makeAssistantMsg(textBlocks('Two'), { id: 'a-1' }),
+          makeUserMsg(textBlocks('Three'), 'u-2'),
+          makeAssistantMsg(textBlocks('Four'), { id: 'a-2' }),
+        ]}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: 'User message 3' }))
+
+    expect(virtuosoMock.scrollToIndex).toHaveBeenLastCalledWith({
+      index: 2,
+      behavior: 'auto',
+      align: 'start',
+    })
+  })
+
+  it('keeps the clicked navigation anchor active while Virtuoso settles', async () => {
+    const user = userEvent.setup()
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[
+          makeUserMsg(textBlocks('One'), 'u-1'),
+          makeAssistantMsg(textBlocks('Two'), { id: 'a-1' }),
+          makeUserMsg(textBlocks('Three'), 'u-2'),
+          makeAssistantMsg(textBlocks('Four'), { id: 'a-2' }),
+        ]}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: 'User message 3' }))
+    expect(screen.getByRole('button', { name: 'User message 3 (current)' })).toBeInTheDocument()
+
+    await act(async () => {
+      virtuosoMock.props.rangeChanged({ startIndex: 100001, endIndex: 100003 })
+    })
+
+    expect(screen.getByRole('button', { name: 'User message 3 (current)' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Assistant message 2 (current)' })).toBeNull()
+  })
+
+  it('scrolls the message navigation top button to relative index zero', async () => {
+    const user = userEvent.setup()
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[
+          makeUserMsg(textBlocks('One'), 'u-1'),
+          makeAssistantMsg(textBlocks('Two'), { id: 'a-1' }),
+          makeUserMsg(textBlocks('Three'), 'u-2'),
+          makeAssistantMsg(textBlocks('Four'), { id: 'a-2' }),
+        ]}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Scroll to top' }))
+
+    expect(virtuosoMock.scrollToIndex).toHaveBeenLastCalledWith({
+      index: 0,
+      behavior: 'smooth',
+      align: 'start',
+    })
   })
 
   it('renders empty state when no messages', () => {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { memo, useCallback, useMemo, useState } from 'react'
-import { ChevronUp, ChevronDown } from 'lucide-react'
+import { ChevronUp, ChevronDown, UserRound } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -175,6 +175,9 @@ export const SessionScrollNav = memo(function SessionScrollNav({
           const globalIdx = win.start + localIdx
           const isActive = globalIdx === activeIdx
           const isUser = anchor.role === 'user'
+          const markerSize = isActive
+            ? 'w-2.5 h-[2px]'
+            : isUser ? 'w-1.5 h-[2px]' : 'w-2.5 h-[2px]'
 
           return (
             <button
@@ -188,9 +191,7 @@ export const SessionScrollNav = memo(function SessionScrollNav({
             >
               <span
                 className={`block rounded-full transition-colors ${
-                  isUser
-                    ? isActive ? 'w-1 h-1'      : 'w-1.5 h-[2px]'
-                    : isActive ? 'w-2.5 h-[2px]' : 'w-2.5 h-[2px]'
+                  markerSize
                 } ${
                   isActive
                     ? 'bg-[hsl(var(--foreground))]'
@@ -225,8 +226,15 @@ export const SessionScrollNav = memo(function SessionScrollNav({
           }}
           aria-hidden="true"
         >
-          <span className="block text-[10px] text-[hsl(var(--muted-foreground))] mb-0.5">
-            {hoveredAnchor.role === 'user' ? '> User' : '\u26A1 Agent'}
+          <span className="mb-0.5 inline-flex items-center gap-1 text-[10px] text-[hsl(var(--muted-foreground))]">
+            {hoveredAnchor.role === 'user' ? (
+              <>
+                <UserRound className="h-3 w-3" aria-hidden="true" />
+                <span>User</span>
+              </>
+            ) : (
+              <span>{'\u26A1 Agent'}</span>
+            )}
           </span>
           <span className="block line-clamp-2 break-words">{hoveredAnchor.preview}</span>
         </div>
