@@ -1,0 +1,3 @@
+[submodule "openclaw-lark"]
+	path = openclaw-lark
+	url = https://github.com/larksuite/openclaw-lark.git
