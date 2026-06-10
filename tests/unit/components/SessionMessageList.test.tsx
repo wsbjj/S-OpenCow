@@ -113,7 +113,7 @@ describe('SessionMessageList', () => {
     expect(writeClipboardText).toHaveBeenCalledWith('I will **fix** this.')
   })
 
-  it('keeps message copy buttons fixed-size, framed, and bottom-aligned', () => {
+  it('keeps message copy buttons fixed-size in a bottom action row', () => {
     render(
       <SessionMessageList
         sessionId="test-session"
@@ -121,13 +121,20 @@ describe('SessionMessageList', () => {
       />
     )
 
-    expect(screen.getByRole('button', { name: /Copy assistant message/i })).toHaveClass(
+    const copyButton = screen.getByRole('button', { name: /Copy assistant message/i })
+    expect(copyButton).toHaveClass(
       'h-7',
       'w-7',
-      'self-end',
-      'border',
       'items-center',
       'justify-center',
+      'rounded-md',
+    )
+    expect(copyButton.parentElement).toHaveClass(
+      'mt-1',
+      'flex',
+      'h-7',
+      'items-center',
+      'justify-start',
     )
   })
 

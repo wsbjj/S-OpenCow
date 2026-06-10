@@ -45,6 +45,24 @@ function SlashCommandChip({ block }: { block: SlashCommandBlock }): React.JSX.El
   )
 }
 
+function MessageActions({
+  ariaLabel,
+  text,
+  align = 'start',
+}: {
+  ariaLabel: string
+  text: string
+  align?: 'start' | 'end'
+}): React.JSX.Element | null {
+  if (!text.trim()) return null
+
+  return (
+    <div className={`mt-1 flex h-7 items-center ${align === 'end' ? 'justify-end' : 'justify-start'}`}>
+      <MessageCopyButton ariaLabel={ariaLabel} text={text} />
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Shared rendering — deduplicates the image-grouping IIFE that was
 // previously copy-pasted in UserMessage and ChatBubbleUserMessage.
@@ -109,8 +127,8 @@ export const UserMessage = memo(function UserMessage({ id, content }: { id: stri
             )}
           </>
         )}
+        <MessageActions ariaLabel="Copy user message" text={copyText} />
       </div>
-      <MessageCopyButton ariaLabel="Copy user message" text={copyText} />
     </div>
   )
 })
@@ -127,23 +145,25 @@ export const ChatBubbleUserMessage = memo(function ChatBubbleUserMessage({ id, c
   const copyText = getUserMessageDisplayInfo(content).displayText ?? ''
 
   return (
-    <div data-msg-id={id} data-msg-role="user" className="flex justify-end gap-1.5 py-1.5">
-      <div className="max-w-[80%] px-4 py-2.5 rounded-2xl bg-[hsl(var(--foreground)/0.06)] dark:bg-white/10 text-[hsl(var(--foreground))]">
-        {hasRichContent ? (
-          <div className="text-sm break-words min-w-0 leading-relaxed">
-            {renderUserContentBlocks(content, CHAT_LINK_CLASS)}
-          </div>
-        ) : (
-          <>
-            {plainText && (
-              <div className="text-sm break-words min-w-0 leading-relaxed">
-                <UserTextWithContext text={plainText} className={CHAT_LINK_CLASS} />
-              </div>
-            )}
-          </>
-        )}
+    <div data-msg-id={id} data-msg-role="user" className="flex justify-end py-1.5">
+      <div className="max-w-[80%] min-w-0">
+        <div className="px-4 py-2.5 rounded-2xl bg-[hsl(var(--foreground)/0.06)] dark:bg-white/10 text-[hsl(var(--foreground))]">
+          {hasRichContent ? (
+            <div className="text-sm break-words min-w-0 leading-relaxed">
+              {renderUserContentBlocks(content, CHAT_LINK_CLASS)}
+            </div>
+          ) : (
+            <>
+              {plainText && (
+                <div className="text-sm break-words min-w-0 leading-relaxed">
+                  <UserTextWithContext text={plainText} className={CHAT_LINK_CLASS} />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <MessageActions ariaLabel="Copy user message" text={copyText} align="end" />
       </div>
-      <MessageCopyButton ariaLabel="Copy user message" text={copyText} />
     </div>
   )
 })

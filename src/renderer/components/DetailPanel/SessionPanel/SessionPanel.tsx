@@ -35,7 +35,6 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useIssueStore } from '@/stores/issueStore'
 import { useNoteStore } from '@/stores/noteStore'
 import { useSessionByBinding, type SessionBinding } from '@/hooks/useSessionForIssue'
-import { cn } from '@/lib/utils'
 import { SessionStarProvider } from './FileStarButton'
 import {
   buildChatModelOptions,
@@ -43,6 +42,7 @@ import {
 } from '@/lib/chatModelOptions'
 import type {
   ManagedSessionMessage,
+  SessionMessageSearchMatch,
   SetSessionModelInput,
   UserMessageContent,
   NoteContent,
@@ -274,6 +274,18 @@ export const SessionPanel = React.memo(function SessionPanel({
     setContextualQuestion(info.text)
     setContextualQuestionMsgId(info.msgId)
   }, [])
+
+  const handleSearchResultSelect = useCallback((match: SessionMessageSearchMatch) => {
+    if (!sessionId) return
+    void useCommandStore.getState().loadSessionMessageAround(sessionId, match.ordinal)
+      .then(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            messageListRef.current?.scrollToMessage(match.messageId)
+          })
+        })
+      })
+  }, [sessionId])
 
   // --- Message Queue ---
   const isResumeState = state === 'idle' || state === 'stopped' || state === 'error'
@@ -583,6 +595,7 @@ export const SessionPanel = React.memo(function SessionPanel({
                       onRetry={capabilities.retry}
                       onNewSession={capabilities.newSession}
                       onNewBlankSession={capabilities.newBlankSession}
+                      onSearchResultSelect={handleSearchResultSelect}
                       history={history}
                       isExpanded={isExpanded}
                       onToggleExpand={onToggleExpand}

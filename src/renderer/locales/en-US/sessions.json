@@ -308,6 +308,14 @@
     "viewingArchived": "Viewing archived session (read-only)",
     "backToCurrent": "Back to current session"
   },
+  "sessionSearch": {
+    "tooltip": "Search messages",
+    "openAria": "Search session messages",
+    "placeholder": "Search messages...",
+    "inputAria": "Search messages",
+    "searching": "Searching...",
+    "noResults": "No matches"
+  },
   "sessionInput": {
     "placeholder": "Type a message or attach a file…",
     "inputAria": "Type a message to send to Claude Code session",

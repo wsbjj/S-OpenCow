@@ -41,11 +41,11 @@ describe('ManagedSessionStore', () => {
   let store: ManagedSessionStore
 
   async function listTableColumns(
-    tableName: 'managed_sessions' | 'managed_session_messages',
+    tableName: 'managed_sessions' | 'managed_session_message_items',
   ): Promise<string[]> {
     const result = tableName === 'managed_sessions'
       ? await sql<{ name: string }>`PRAGMA table_info(managed_sessions)`.execute(db)
-      : await sql<{ name: string }>`PRAGMA table_info(managed_session_messages)`.execute(db)
+      : await sql<{ name: string }>`PRAGMA table_info(managed_session_message_items)`.execute(db)
     return result.rows.map((column) => column.name)
   }
 
@@ -61,11 +61,19 @@ describe('ManagedSessionStore', () => {
   })
 
   describe('schema', () => {
-    it('migrates messages out of the managed_sessions table', async () => {
+    it('stores managed session messages as row-level items', async () => {
       await expect(listTableColumns('managed_sessions')).resolves.not.toContain('messages')
-      await expect(listTableColumns('managed_session_messages')).resolves.toEqual([
+      await expect(listTableColumns('managed_sessions')).resolves.toContain('message_count')
+      await expect(listTableColumns('managed_sessions')).resolves.toContain('first_user_summary')
+      await expect(listTableColumns('managed_session_message_items')).resolves.toEqual([
         'session_id',
-        'messages',
+        'ordinal',
+        'message_id',
+        'turn_index',
+        'role',
+        'timestamp',
+        'content_json',
+        'text_content',
       ])
     })
   })
@@ -148,7 +156,7 @@ describe('ManagedSessionStore', () => {
       expect(loaded?.model).toBe('claude-sonnet-4-6')
     })
 
-    it('updates split message storage when an existing session is upserted', async () => {
+    it('updates row-level message storage when an existing session is upserted', async () => {
       await store.save(makeSession({
         id: 'ccb-msg-upsert-1',
         messages: [
@@ -173,19 +181,20 @@ describe('ManagedSessionStore', () => {
         ],
       }))
 
-      const row = await db
-        .selectFrom('managed_session_messages')
-        .select(['session_id', 'messages'])
+      const rows = await db
+        .selectFrom('managed_session_message_items')
+        .select(['session_id', 'message_id', 'ordinal', 'role', 'text_content'])
         .where('session_id', '=', 'ccb-msg-upsert-1')
-        .executeTakeFirstOrThrow()
+        .orderBy('ordinal', 'asc')
+        .execute()
 
-      expect(row.session_id).toBe('ccb-msg-upsert-1')
-      expect(JSON.parse(row.messages)).toEqual([
+      expect(rows).toEqual([
         {
-          id: 'msg-new',
+          session_id: 'ccb-msg-upsert-1',
+          message_id: 'msg-new',
+          ordinal: 0,
           role: 'assistant',
-          content: [{ type: 'text', text: 'new message' }],
-          timestamp: 2,
+          text_content: 'new message',
         },
       ])
     })
@@ -229,6 +238,110 @@ describe('ManagedSessionStore', () => {
 
       expect(listed.id).toBe('ccb-list-metadata-only-1')
       expect(listed.messages).toEqual([])
+      expect(listed.messageCount).toBe(1)
+      expect(listed.firstUserSummary).toBe('large body')
+    })
+  })
+
+  describe('getMessagePage', () => {
+    it('loads the latest 100 messages in ascending order with page metadata', async () => {
+      const messages = Array.from({ length: 125 }, (_, index) => ({
+        id: `msg-${index}`,
+        role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
+        content: [{ type: 'text' as const, text: `message ${index}` }],
+        timestamp: index,
+      }))
+      await store.save(makeSession({ id: 'ccb-page-1', messages }))
+
+      const page = await store.getMessagePage('ccb-page-1', { limit: 100 })
+
+      expect(page.messages).toHaveLength(100)
+      expect(page.messages[0].id).toBe('msg-25')
+      expect(page.messages.at(-1)?.id).toBe('msg-124')
+      expect(page.oldestOrdinal).toBe(25)
+      expect(page.newestOrdinal).toBe(124)
+      expect(page.totalCount).toBe(125)
+      expect(page.hasMoreBefore).toBe(true)
+    })
+
+    it('loads older messages before the current oldest ordinal', async () => {
+      const messages = Array.from({ length: 12 }, (_, index) => ({
+        id: `msg-${index}`,
+        role: 'user' as const,
+        content: [{ type: 'text' as const, text: `message ${index}` }],
+        timestamp: index,
+      }))
+      await store.save(makeSession({ id: 'ccb-page-older', messages }))
+
+      const page = await store.getMessagePage('ccb-page-older', {
+        beforeOrdinal: 8,
+        limit: 5,
+      })
+
+      expect(page.messages.map((m) => m.id)).toEqual(['msg-3', 'msg-4', 'msg-5', 'msg-6', 'msg-7'])
+      expect(page.oldestOrdinal).toBe(3)
+      expect(page.newestOrdinal).toBe(7)
+      expect(page.hasMoreBefore).toBe(true)
+    })
+
+    it('loads a search jump window around an ordinal', async () => {
+      const messages = Array.from({ length: 121 }, (_, index) => ({
+        id: `msg-${index}`,
+        role: 'user' as const,
+        content: [{ type: 'text' as const, text: `message ${index}` }],
+        timestamp: index,
+      }))
+      await store.save(makeSession({ id: 'ccb-page-around', messages }))
+
+      const page = await store.getMessagePage('ccb-page-around', {
+        aroundOrdinal: 60,
+        limit: 101,
+      })
+
+      expect(page.messages).toHaveLength(101)
+      expect(page.messages[0].id).toBe('msg-10')
+      expect(page.messages.at(-1)?.id).toBe('msg-110')
+      expect(page.oldestOrdinal).toBe(10)
+      expect(page.newestOrdinal).toBe(110)
+    })
+  })
+
+  describe('searchSessionMessages', () => {
+    it('searches message text with FTS and returns ordinal metadata', async () => {
+      await store.save(makeSession({
+        id: 'ccb-search-1',
+        messages: [
+          {
+            id: 'u1',
+            role: 'user',
+            content: [{ type: 'text', text: 'please inspect the renderer cache' }],
+            timestamp: 1,
+          },
+          {
+            id: 'a1',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'the database cache is unrelated' }],
+            timestamp: 2,
+          },
+          {
+            id: 'u2',
+            role: 'user',
+            content: [{ type: 'text', text: 'renderer cache still feels slow' }],
+            timestamp: 3,
+          },
+        ],
+      }))
+
+      const matches = await store.searchSessionMessages('ccb-search-1', 'renderer cache')
+
+      expect(matches.map((m) => m.messageId)).toEqual(['u1', 'u2'])
+      expect(matches[0]).toMatchObject({
+        sessionId: 'ccb-search-1',
+        ordinal: 0,
+        turnIndex: 0,
+        role: 'user',
+      })
+      expect(matches[0].snippet).toContain('<mark>')
     })
   })
 
@@ -257,7 +370,7 @@ describe('ManagedSessionStore', () => {
       await store.remove('ccb-del-messages-1')
 
       const row = await db
-        .selectFrom('managed_session_messages')
+        .selectFrom('managed_session_message_items')
         .select('session_id')
         .where('session_id', '=', 'ccb-del-messages-1')
         .executeTakeFirst()

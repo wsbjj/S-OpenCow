@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useRef, useCallback, useMemo, useState, startTransition, memo, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useRef, useCallback, useMemo, useState, startTransition, memo, forwardRef, useImperativeHandle, useLayoutEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Virtuoso, type VirtuosoHandle, type ListRange } from 'react-virtuoso'
 import { ArrowDown, GitCompare } from 'lucide-react'
@@ -27,9 +27,9 @@ import { useIncrementalMemo } from '@/hooks/useIncrementalMemo'
 import { cn } from '@/lib/utils'
 import { perfEnabled, perfLog } from '@/lib/perfLogger'
 import { useCommandStore, selectSessionMessages } from '@/stores/commandStore'
-import type { ManagedSessionMessage, ManagedSessionState, SessionStopReason, UserMessageContent, ContentBlock } from '@shared/types'
+import type { ManagedSessionMessage, ManagedSessionState, SessionStopReason, UserMessageContent } from '@shared/types'
 import { truncate as unicodeTruncate } from '@shared/unicode'
-import { extractUserText, getUserMessageDisplayInfo } from './messageDisplayUtils'
+import { getUserMessageDisplayInfo } from './messageDisplayUtils'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -229,6 +229,8 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
   // use those instead — they come from non-commandStore sources.
   const storeMessages = useCommandStore((s) => selectSessionMessages(s, sessionId))
   const messages = externalMessages ?? storeMessages
+  const pageState = useCommandStore((s) => s.sessionMessagePages[sessionId] ?? null)
+  const loadOlderSessionMessages = useCommandStore((s) => s.loadOlderSessionMessages)
 
   // NOTE: streaming content subscription is NOT here — it was moved to
   // AssistantMessage (self-subscribing pattern).  During text-only streaming,
@@ -243,6 +245,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
   // Virtuoso mounts and provides its scroller DOM element.  The ref is kept
   // alongside for synchronous access in scrollToMessage / SessionScrollNav.
   const [scrollerEl, setScrollerEl] = useState<HTMLElement | null>(null)
+  const [firstItemIndex, setFirstItemIndex] = useState(100_000)
 
   // Derive content-active signal from session state: true when the agent is
   // actively producing output (streaming text, creating subprocess, etc.).
@@ -328,7 +331,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
   // Incremental: O(delta) via useIncrementalMemo — only scans new messages.
   const toolLifecycleMap = useIncrementalMemo<ManagedSessionMessage, ToolLifecycleMap>(
     messages,
-    sessionId,
+    `${sessionId}:${pageState?.oldestOrdinal ?? 'none'}:${pageState?.newestOrdinal ?? 'none'}`,
     scanToolLifecycle,
     INIT_TOOL_MAP,
   )
@@ -358,7 +361,8 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
   const consumedIdsRef = useRef(consumedTaskIds)
   consumedIdsRef.current = consumedTaskIds
 
-  const groupResetKey = `${sessionId}:${consumedIdsVersionRef.current}`
+  const windowResetKey = `${sessionId}:${pageState?.oldestOrdinal ?? 'none'}:${pageState?.newestOrdinal ?? 'none'}`
+  const groupResetKey = `${windowResetKey}:${consumedIdsVersionRef.current}`
 
   /**
    * Incremental result shape:
@@ -495,7 +499,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
   // ---------------------------------------------------------------------------
   const navAnchorsResult = useIncrementalMemo<ManagedSessionMessage, NavAnchorAccumulator>(
     messages,
-    sessionId,
+    windowResetKey,
     scanNavAnchors,
     INIT_NAV_ANCHORS_ACC,
   )
@@ -519,12 +523,32 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
     []
   )
 
+  const firstGroupIdRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    const firstGroup = messageGroups[0]
+    const firstGroupId = firstGroup ? getGroupMsgId(firstGroup) : null
+    const previousFirstGroupId = firstGroupIdRef.current
+
+    if (firstGroupId && previousFirstGroupId && firstGroupId !== previousFirstGroupId) {
+      const previousIndex = messageGroups.findIndex((group) => getGroupMsgId(group) === previousFirstGroupId)
+      if (previousIndex > 0) {
+        setFirstItemIndex((current) => current - previousIndex)
+      } else {
+        setFirstItemIndex(100_000)
+      }
+    }
+
+    firstGroupIdRef.current = firstGroupId
+  }, [messageGroups, getGroupMsgId])
+
   const handleRangeChanged = useCallback(({ startIndex, endIndex }: ListRange) => {
     // Walk from startIndex to find the first group whose msgId is a nav anchor.
     // This represents the topmost visible conversation turn — the most intuitive
     // "you are here" indicator when scrolling.
-    for (let i = startIndex; i <= endIndex && i < messageGroups.length; i++) {
-      const msgId = getGroupMsgId(messageGroups[i])
+    for (let i = startIndex; i <= endIndex; i++) {
+      const dataIndex = i - firstItemIndex
+      if (dataIndex < 0 || dataIndex >= messageGroups.length) continue
+      const msgId = getGroupMsgId(messageGroups[dataIndex])
       if (navAnchorSet.has(msgId)) {
         // Low-priority update — this fires on every scroll frame but is purely
         // cosmetic (nav highlight + banner text).  startTransition tells React
@@ -533,7 +557,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
         return
       }
     }
-  }, [messageGroups, navAnchorSet, getGroupMsgId])
+  }, [firstItemIndex, messageGroups, navAnchorSet, getGroupMsgId])
 
   // ---------------------------------------------------------------------------
   // Contextual question — derived from the active nav anchor
@@ -636,8 +660,8 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
     // Disengage follow mode BEFORE scrolling, otherwise handleTotalHeightChanged
     // and handleFollowOutput will fight the scroll back to bottom.
     disengageFollow()
-    virtuosoRef.current?.scrollToIndex({ index: 0, behavior: 'smooth', align: 'start' })
-  }, [disengageFollow, virtuosoRef])
+    virtuosoRef.current?.scrollToIndex({ index: firstItemIndex, behavior: 'smooth', align: 'start' })
+  }, [disengageFollow, firstItemIndex, virtuosoRef])
 
   const scrollToMessage = useCallback((msgId: string) => {
     // Find the group index containing this message
@@ -659,7 +683,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
       // of at the top.  Instant scroll lets Virtuoso render the target area
       // first and measure real heights before positioning, so alignment is
       // pixel-perfect.  The scroll-flash highlight provides visual feedback.
-      virtuosoRef.current?.scrollToIndex({ index: groupIndex, behavior: 'auto', align: 'start' })
+      virtuosoRef.current?.scrollToIndex({ index: firstItemIndex + groupIndex, behavior: 'auto', align: 'start' })
     }
 
     // After scrolling, apply highlight flash on the target element.
@@ -679,7 +703,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
       target.addEventListener('animationend', cleanup, { once: true })
       setTimeout(cleanup, 1500)
     }, SCROLL_SETTLE_MS)
-  }, [messageGroups, disengageFollow])
+  }, [firstItemIndex, messageGroups, disengageFollow])
 
   useImperativeHandle(ref, () => ({ scrollToBottom, scrollToMessage }), [scrollToBottom, scrollToMessage])
 
@@ -761,7 +785,7 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
   // paint shows content near the bottom, minimising visual flash before the
   // mount-time safeguard scrolls to the absolute bottom.
   const initialTopMostItemIndex = useMemo(
-    () => messageGroups.length > 0 ? messageGroups.length - 1 : 0,
+    () => messageGroups.length > 0 ? firstItemIndex + messageGroups.length - 1 : firstItemIndex,
     [], // eslint-disable-line react-hooks/exhaustive-deps -- only on mount
   )
 
@@ -793,6 +817,12 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
     setScrollerEl(htmlEl)
   }, [])
 
+  const handleStartReached = useCallback(() => {
+    if (externalMessages) return
+    if (!pageState?.hasMoreBefore || pageState.isLoadingBefore) return
+    void loadOlderSessionMessages(sessionId)
+  }, [externalMessages, loadOlderSessionMessages, pageState?.hasMoreBefore, pageState?.isLoadingBefore, sessionId])
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -819,9 +849,11 @@ function SessionMessageList({ sessionId, messages: externalMessages, sessionStat
           <Virtuoso
             ref={virtuosoRef}
             data={virtuosoData}
+            firstItemIndex={firstItemIndex}
             context={virtuosoContext}
             computeItemKey={computeItemKey}
             itemContent={renderItem}
+            startReached={handleStartReached}
             followOutput={handleFollowOutput}
             atBottomStateChange={handleAtBottomChange}
             totalListHeightChanged={handleTotalHeightChanged}

@@ -6,9 +6,8 @@ import { History, RotateCcw } from 'lucide-react'
 import { SessionStateIndicator } from '../SessionStatusCard'
 import { Tooltip } from '../../ui/Tooltip'
 import { PillDropdown } from '../../ui/PillDropdown'
-import { formatDuration, extractTextContent } from '@/lib/sessionHelpers'
-import { useSessionMessages } from '@/hooks/useSessionMessages'
-import type { SessionSnapshot, ManagedSessionMessage } from '@shared/types'
+import { formatDuration } from '@/lib/sessionHelpers'
+import type { SessionSnapshot } from '@shared/types'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,23 +35,6 @@ function formatSessionDate(epochMs: number): string {
   }).format(new Date(epochMs))
 }
 
-/**
- * Extract a short summary from the first user message in a session.
- * Prefers text content, falls back to "(image)", or null.
- */
-function extractSessionSummary(messages: ManagedSessionMessage[]): string | null {
-  const firstUserMsg = messages.find((m) => m.role === 'user')
-  if (!firstUserMsg) return null
-
-  const text = extractTextContent(firstUserMsg.content)
-  if (text) return text.length > 80 ? `${text.slice(0, 80)}…` : text
-
-  const hasImage = firstUserMsg.content.some((b) => b.type === 'image')
-  if (hasImage) return '(image)'
-
-  return null
-}
-
 // ---------------------------------------------------------------------------
 // Components
 // ---------------------------------------------------------------------------
@@ -67,8 +49,7 @@ function SessionHistoryItem({
   onView: () => void
 }): React.JSX.Element {
   const { t } = useTranslation('sessions')
-  const messages = useSessionMessages(session.id)
-  const summary = extractSessionSummary(messages)
+  const summary = session.firstUserSummary ?? null
 
   return (
     <div className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-[hsl(var(--foreground)/0.04)] transition-colors">

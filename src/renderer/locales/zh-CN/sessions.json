@@ -308,6 +308,14 @@
     "viewingArchived": "正在查看已归档会话（只读）",
     "backToCurrent": "返回当前会话"
   },
+  "sessionSearch": {
+    "tooltip": "搜索消息",
+    "openAria": "搜索会话消息",
+    "placeholder": "搜索消息...",
+    "inputAria": "搜索消息",
+    "searching": "搜索中...",
+    "noResults": "没有匹配结果"
+  },
   "sessionInput": {
     "placeholder": "输入消息或附加文件…",
     "inputAria": "向 Claude Code 会话发送消息",
