@@ -272,6 +272,27 @@ describe('ManagedSessionStore', () => {
   })
 
   describe('get', () => {
+    it('returns metadata-only snapshot without message bodies', async () => {
+      await store.save(makeSession({
+        id: 'ccb-get-snapshot-1',
+        state: 'idle',
+        messages: [
+          {
+            id: 'msg-heavy',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'expensive history body' }],
+            timestamp: 1,
+          },
+        ],
+      }))
+
+      const snapshot = await store.getSnapshot('ccb-get-snapshot-1')
+
+      expect(snapshot?.id).toBe('ccb-get-snapshot-1')
+      expect(snapshot?.state).toBe('idle')
+      expect('messages' in (snapshot ?? {})).toBe(false)
+    })
+
     it('returns session by id', async () => {
       const session = makeSession({ id: 'ccb-get-1', origin: { source: 'issue', issueId: 'issue-42' } })
       await store.save(session)

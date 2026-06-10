@@ -113,6 +113,24 @@ describe('SessionMessageList', () => {
     expect(writeClipboardText).toHaveBeenCalledWith('I will **fix** this.')
   })
 
+  it('keeps message copy buttons fixed-size, framed, and bottom-aligned', () => {
+    render(
+      <SessionMessageList
+        sessionId="test-session"
+        messages={[makeAssistantMsg(textBlocks('A long response\n\n'.repeat(20)), { id: 'assistant-copy-layout' })]}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: /Copy assistant message/i })).toHaveClass(
+      'h-7',
+      'w-7',
+      'self-end',
+      'border',
+      'items-center',
+      'justify-center',
+    )
+  })
+
   it('copies visible slash command text from user messages', async () => {
     const user = userEvent.setup()
     render(

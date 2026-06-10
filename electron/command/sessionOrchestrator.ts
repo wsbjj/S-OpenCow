@@ -1183,7 +1183,7 @@ export class SessionOrchestrator {
     // This path is taken when the SDK process has exited (lifecycle.stopped === true)
     // or the session was loaded from persisted storage (no active runtime).
     const session = rt?.session
-    const snap = session?.snapshot() ?? await this.store.get(sessionId)
+    const snap = session?.snapshot() ?? await this.store.getSnapshot(sessionId)
     if (snap && (snap.state === 'idle' || snap.state === 'stopped' || snap.state === 'error')) {
       log.info('sendMessage resuming persisted/idle session', { sessionId, priorState: snap.state })
       return await this.resumeSession(sessionId, content)
@@ -1695,7 +1695,7 @@ export class SessionOrchestrator {
 
   async getSession(sessionId: string): Promise<SessionSnapshot | null> {
     // Check active sessions first, then fall back to persisted
-    return this.runtimes.get(sessionId)?.session.snapshot() ?? await this.store.get(sessionId)
+    return this.runtimes.get(sessionId)?.session.snapshot() ?? await this.store.getSnapshot(sessionId)
   }
 
   /**

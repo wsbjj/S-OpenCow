@@ -2,7 +2,7 @@
 
 import type { Kysely } from 'kysely'
 import type { Database } from '../database/types'
-import type { ManagedSessionInfo } from '../../src/shared/types'
+import type { ManagedSessionInfo, SessionSnapshot } from '../../src/shared/types'
 import {
   managedSessionInfoToMessagesRow,
   managedSessionInfoToRow,
@@ -37,6 +37,8 @@ const MANAGED_SESSION_COLUMNS = [
   'execution_context',
 ] as const
 
+const FULL_SESSION_CACHE_LIMIT = 3
+
 /**
  * Persists ManagedSessionInfo snapshots to SQLite so that
  * Issue ↔ Session links survive app restarts.
@@ -48,6 +50,8 @@ const MANAGED_SESSION_COLUMNS = [
  * database level, so the old write-chain pattern is no longer needed.
  */
 export class ManagedSessionStore {
+  private readonly fullSessionCache = new Map<string, ManagedSessionInfo>()
+
   constructor(private readonly db: Kysely<Database>) {}
 
   /**
@@ -105,10 +109,31 @@ export class ManagedSessionStore {
         )
         .execute()
     })
+
+    this.setCachedFullSession(session)
   }
 
   async remove(sessionId: string): Promise<void> {
     await this.db.deleteFrom('managed_sessions').where('id', '=', sessionId).execute()
+    this.fullSessionCache.delete(sessionId)
+  }
+
+  private getCachedFullSession(sessionId: string): ManagedSessionInfo | null {
+    const cached = this.fullSessionCache.get(sessionId)
+    if (!cached) return null
+    this.fullSessionCache.delete(sessionId)
+    this.fullSessionCache.set(sessionId, cached)
+    return cached
+  }
+
+  private setCachedFullSession(session: ManagedSessionInfo): void {
+    this.fullSessionCache.delete(session.id)
+    this.fullSessionCache.set(session.id, session)
+    while (this.fullSessionCache.size > FULL_SESSION_CACHE_LIMIT) {
+      const oldest = this.fullSessionCache.keys().next().value
+      if (!oldest) break
+      this.fullSessionCache.delete(oldest)
+    }
   }
 
   private async getMessagesJson(sessionId: string): Promise<string> {
@@ -121,7 +146,25 @@ export class ManagedSessionStore {
     return row?.messages ?? '[]'
   }
 
+  private rowToSnapshot(row: Parameters<typeof managedSessionRowToInfo>[0]): SessionSnapshot {
+    const { messages: _messages, ...snapshot } = managedSessionRowToInfo(row, '[]')
+    return snapshot
+  }
+
+  async getSnapshot(sessionId: string): Promise<SessionSnapshot | null> {
+    const row = await this.db
+      .selectFrom('managed_sessions')
+      .select(MANAGED_SESSION_COLUMNS)
+      .where('id', '=', sessionId)
+      .executeTakeFirst()
+
+    return row ? this.rowToSnapshot(row) : null
+  }
+
   async get(sessionId: string): Promise<ManagedSessionInfo | null> {
+    const cached = this.getCachedFullSession(sessionId)
+    if (cached) return cached
+
     const row = await this.db
       .selectFrom('managed_sessions')
       .select(MANAGED_SESSION_COLUMNS)
@@ -130,7 +173,9 @@ export class ManagedSessionStore {
 
     if (!row) return null
 
-    return managedSessionRowToInfo(row, await this.getMessagesJson(row.id))
+    const session = managedSessionRowToInfo(row, await this.getMessagesJson(row.id))
+    this.setCachedFullSession(session)
+    return session
   }
 
   /**
@@ -185,7 +230,9 @@ export class ManagedSessionStore {
       .where('project_id', '=', params.projectId)
       .execute()
 
-    return result.reduce((sum, r) => sum + Number(r.numUpdatedRows ?? 0), 0)
+    const count = result.reduce((sum, r) => sum + Number(r.numUpdatedRows ?? 0), 0)
+    if (count > 0) this.fullSessionCache.clear()
+    return count
   }
 
   /**
