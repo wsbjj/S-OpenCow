@@ -99,6 +99,11 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     } else {
       set({
         updateAvailable: false,
+        latestVersion: result.latestVersion ?? null,
+        releaseUrl: result.releaseUrl ?? null,
+        releaseNotes: result.releaseNotes ?? null,
+        downloadUrl: result.downloadUrl ?? null,
+        publishedAt: result.publishedAt ?? null,
         lastCheckedAt: result.checkedAt,
         checking: false,
       })

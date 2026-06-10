@@ -21,8 +21,8 @@ const log = createLogger('GitHubReleaseClient')
 
 // ─── Constants ──────────────────────────────────────────────────────
 
-const GITHUB_OWNER = 'OpenCowAI'
-const GITHUB_REPO = 'opencow'
+const GITHUB_OWNER = 'wsbjj'
+const GITHUB_REPO = 'S-OpenCow'
 const RELEASES_LATEST_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
 const REQUEST_TIMEOUT_MS = 15_000
 

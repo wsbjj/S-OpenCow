@@ -64,7 +64,7 @@ export function ModelSwitcher({
     <PillDropdown
       open={open}
       onOpenChange={setOpen}
-      position="above"
+      position="below"
       align="left"
       className={className}
       dropdownClassName="w-[min(340px,calc(100vw-24px))]"

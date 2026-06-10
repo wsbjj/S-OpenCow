@@ -3812,6 +3812,11 @@ export type UpdateCheckResult =
   | {
       status: 'up-to-date'
       currentVersion: string
+      latestVersion?: string
+      releaseUrl?: string
+      releaseNotes?: string
+      publishedAt?: string
+      downloadUrl?: string | null
       checkedAt: string
     }
 

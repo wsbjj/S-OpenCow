@@ -509,11 +509,13 @@
   },
   "updates": {
     "title": "更新",
-    "description": "配置 OpenCow 如何通过 GitHub Releases 检查新版本。",
+    "description": "配置 OpenCow 如何通过 wsbjj/S-OpenCow 的 GitHub Releases 检查新版本。",
     "autoCheck": "自动检查更新",
-    "autoCheckDesc": "定期通过 GitHub Releases 检查是否有新版本。",
+    "autoCheckDesc": "定期通过 wsbjj/S-OpenCow 的 GitHub Releases 检查是否有新版本。",
     "checkInterval": "检查间隔",
     "currentVersion": "当前版本",
+    "releaseRepository": "更新来源",
+    "latestAvailableVersion": "最新可用版本",
     "lastChecked": "上次检查",
     "intervals": {
       "1h": "1 小时",

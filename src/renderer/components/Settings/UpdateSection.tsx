@@ -19,6 +19,9 @@ import type { UpdateCheckInterval } from '@shared/types'
 import { cn } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 
+const UPDATE_REPOSITORY_URL = 'https://github.com/wsbjj/S-OpenCow'
+const UPDATE_REPOSITORY_LABEL = 'wsbjj/S-OpenCow'
+
 const INTERVAL_OPTIONS: { value: UpdateCheckInterval; labelKey: string }[] = [
   { value: '1h', labelKey: 'updates.intervals.1h' },
   { value: '4h', labelKey: 'updates.intervals.4h' },
@@ -108,6 +111,40 @@ export function UpdateSection(): React.JSX.Element {
           </span>
           <span className="font-mono font-medium">{APP_VERSION}</span>
         </div>
+
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-[hsl(var(--muted-foreground))]">
+            {t('updates.releaseRepository')}
+          </span>
+          <a
+            href={UPDATE_REPOSITORY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-[hsl(var(--primary))] hover:underline"
+          >
+            {UPDATE_REPOSITORY_LABEL}
+          </a>
+        </div>
+
+        {latestVersion && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[hsl(var(--muted-foreground))]">
+              {t('updates.latestAvailableVersion')}
+            </span>
+            {releaseUrl ? (
+              <a
+                href={releaseUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono font-medium text-[hsl(var(--primary))] hover:underline"
+              >
+                v{latestVersion}
+              </a>
+            ) : (
+              <span className="font-mono font-medium">v{latestVersion}</span>
+            )}
+          </div>
+        )}
 
         {/* ── Check result feedback ─────────────────────────────────── */}
 

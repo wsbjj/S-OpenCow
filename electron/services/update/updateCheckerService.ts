@@ -175,7 +175,16 @@ export class UpdateCheckerService {
     log.debug(`Already up to date (current: ${APP_VERSION}, latest: ${release.version})`)
     this.bus.dispatch({
       type: 'update:check-result',
-      payload: { status: 'up-to-date', currentVersion: APP_VERSION, checkedAt },
+      payload: {
+        status: 'up-to-date',
+        currentVersion: APP_VERSION,
+        latestVersion: release.version,
+        releaseUrl: release.htmlUrl,
+        releaseNotes: release.body,
+        publishedAt: release.publishedAt,
+        downloadUrl: findMatchingAssetUrl(release.assets),
+        checkedAt,
+      },
     })
     return null
   }

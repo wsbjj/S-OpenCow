@@ -54,10 +54,10 @@ describe('updateStore', () => {
         status: 'available',
         currentVersion: '0.3.0',
         latestVersion: '0.4.0',
-        releaseUrl: 'https://github.com/OpenCowAI/opencow/releases/tag/v0.4.0',
+        releaseUrl: 'https://github.com/wsbjj/S-OpenCow/releases/tag/v0.4.0',
         releaseNotes: '## What\'s new\n- Feature X',
         publishedAt: '2026-03-26T00:00:00Z',
-        downloadUrl: 'https://github.com/OpenCowAI/opencow/releases/download/v0.4.0/OpenCow-0.4.0-universal.dmg',
+        downloadUrl: 'https://github.com/wsbjj/S-OpenCow/releases/download/v0.4.0/S-OpenCow-0.4.0-universal.dmg',
         checkedAt: '2026-03-26T10:00:00Z',
       }
 
@@ -94,6 +94,29 @@ describe('updateStore', () => {
       expect(state.updateAvailable).toBe(false)
       expect(state.lastCheckedAt).toBe(result.checkedAt)
       expect(state.checking).toBe(false)
+    })
+
+    it('stores latest release metadata when already up-to-date', () => {
+      const result: UpdateCheckResult = {
+        status: 'up-to-date',
+        currentVersion: '0.4.0',
+        latestVersion: '0.4.0',
+        releaseUrl: 'https://github.com/wsbjj/S-OpenCow/releases/tag/v0.4.0',
+        releaseNotes: 'Latest release notes',
+        publishedAt: '2026-03-26T00:00:00Z',
+        downloadUrl: null,
+        checkedAt: '2026-03-26T11:00:00Z',
+      }
+
+      useUpdateStore.getState().onCheckResult(result)
+
+      const state = useUpdateStore.getState()
+      expect(state.updateAvailable).toBe(false)
+      expect(state.latestVersion).toBe('0.4.0')
+      expect(state.releaseUrl).toBe(result.releaseUrl)
+      expect(state.releaseNotes).toBe(result.releaseNotes)
+      expect(state.publishedAt).toBe(result.publishedAt)
+      expect(state.downloadUrl).toBeNull()
     })
 
     it('clears checking flag on result', () => {
