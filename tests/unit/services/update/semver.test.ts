@@ -5,19 +5,24 @@ import { parseSemVer, isNewerVersion } from '../../../../electron/services/updat
 
 describe('parseSemVer', () => {
   it('parses a plain version string', () => {
-    expect(parseSemVer('1.2.3')).toEqual({ major: 1, minor: 2, patch: 3 })
+    expect(parseSemVer('1.2.3')).toEqual({ major: 1, minor: 2, patch: 3, prerelease: null })
   })
 
   it('parses a version string with "v" prefix', () => {
-    expect(parseSemVer('v0.3.0')).toEqual({ major: 0, minor: 3, patch: 0 })
+    expect(parseSemVer('v0.3.0')).toEqual({ major: 0, minor: 3, patch: 0, prerelease: null })
   })
 
-  it('strips pre-release suffix after patch', () => {
-    expect(parseSemVer('v1.0.0-beta.1')).toEqual({ major: 1, minor: 0, patch: 0 })
+  it('parses pre-release suffix after patch', () => {
+    expect(parseSemVer('v1.0.0-beta.1')).toEqual({
+      major: 1,
+      minor: 0,
+      patch: 0,
+      prerelease: 'beta.1',
+    })
   })
 
   it('handles leading/trailing whitespace', () => {
-    expect(parseSemVer('  v2.1.0  ')).toEqual({ major: 2, minor: 1, patch: 0 })
+    expect(parseSemVer('  v2.1.0  ')).toEqual({ major: 2, minor: 1, patch: 0, prerelease: null })
   })
 
   it('returns null for empty string', () => {
@@ -33,7 +38,12 @@ describe('parseSemVer', () => {
   })
 
   it('handles large version numbers', () => {
-    expect(parseSemVer('100.200.300')).toEqual({ major: 100, minor: 200, patch: 300 })
+    expect(parseSemVer('100.200.300')).toEqual({
+      major: 100,
+      minor: 200,
+      patch: 300,
+      prerelease: null,
+    })
   })
 })
 
@@ -60,6 +70,18 @@ describe('isNewerVersion', () => {
 
   it('handles "v" prefixes on both sides', () => {
     expect(isNewerVersion('v0.3.0', 'v0.4.0')).toBe(true)
+  })
+
+  it('detects newer dev prerelease patch versions', () => {
+    expect(isNewerVersion('0.3.22-dev', '0.3.23-dev')).toBe(true)
+  })
+
+  it('treats a stable release as newer than a prerelease with the same core version', () => {
+    expect(isNewerVersion('0.3.23-dev', '0.3.23')).toBe(true)
+  })
+
+  it('does not treat a prerelease as newer than a stable release with the same core version', () => {
+    expect(isNewerVersion('0.3.23', '0.3.23-dev')).toBe(false)
   })
 
   it('returns false for invalid current version', () => {

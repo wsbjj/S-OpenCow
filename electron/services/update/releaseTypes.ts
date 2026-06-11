@@ -20,6 +20,8 @@ export interface ReleaseInfo {
   body: string
   /** ISO 8601 publish date */
   publishedAt: string
+  /** Whether this GitHub Release is marked as a prerelease. */
+  prerelease: boolean
   /** Download assets attached to the release */
   assets: ReleaseAsset[]
 }
