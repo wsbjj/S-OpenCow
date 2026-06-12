@@ -176,6 +176,26 @@ function userContentToBlocks(content: UserMessageContent): ContentBlock[] {
 }
 
 /**
+ * Returns true if the message content is exactly the /compact slash command.
+ * Case-sensitive, trims whitespace. Accepts either a raw string or a
+ * single-block text array (UserMessageContent).
+ */
+function isCompactCommand(content: UserMessageContent): boolean {
+  if (typeof content === 'string') return content.trim() === '/compact'
+  if (Array.isArray(content) && content.length === 1) {
+    const block = content[0]
+    return (
+      block != null &&
+      typeof block === 'object' &&
+      block.type === 'text' &&
+      typeof block.text === 'string' &&
+      block.text.trim() === '/compact'
+    )
+  }
+  return false
+}
+
+/**
  * Classify spawn-related errors into categories for appropriate handling.
  *
  * - 'process_corrupted': EBADF — file descriptor leak in parent process.
@@ -1051,6 +1071,34 @@ export class SessionOrchestrator {
   }
 
   async sendMessage(sessionId: string, content: UserMessageContent): Promise<boolean> {
+    // ── /compact intercept (must be FIRST — before drift checks and lifecycle push) ──
+    if (isCompactCommand(content)) {
+      log.info('sendMessage: /compact command intercepted', { sessionId })
+      return await this.compactSession(sessionId, 'manual')
+    }
+
+    // ── Auto-compact at 90% context usage ──────────────────────────────────────────
+    {
+      const snapshot =
+        this.runtimes.get(sessionId)?.session.snapshot() ??
+        (await this.store.getSnapshot(sessionId)) ??
+        null
+      if (snapshot) {
+        const { usedTokens, limitTokens } = resolveContextDisplayState(snapshot)
+        if (limitTokens > 0 && usedTokens / limitTokens >= 0.9) {
+          log.info('sendMessage: auto-compact triggered (>= 90% context usage)', {
+            sessionId,
+            ratio: Math.round((usedTokens / limitTokens) * 100),
+          })
+          const compacted = await this.compactSession(sessionId, 'auto')
+          if (!compacted) {
+            log.warn('sendMessage: auto-compact failed, proceeding without compaction', { sessionId })
+            // Do NOT return false — continue sending the message.
+          }
+        }
+      }
+    }
+
     const rt = this.runtimes.get(sessionId)
     log.debug('sendMessage entered', {
       sessionId,
@@ -1385,6 +1433,15 @@ export class SessionOrchestrator {
       forceRestart = true
     }
 
+    // ── pendingCompact: force fresh startThread() after three-layer compaction ──
+    // When the session was compacted, engineRef was cleared and pendingCompact was set.
+    // Force startThread() (no resume) so the new lifecycle picks up the
+    // continuation system prompt injected by applyCompactContinuation().
+    if (!forceRestart && existing?.session.isPendingCompact()) {
+      log.info('resumeSessionInternal: pendingCompact detected, forcing fresh startThread()', { sessionId })
+      forceRestart = true
+    }
+
     // Fast path: if the SDK process is still alive (multi-turn wait mode),
     // push to the existing queue instead of the expensive kill → restart cycle.
     // This is the primary entry point from the renderer for `idle` sessions
@@ -1410,6 +1467,14 @@ export class SessionOrchestrator {
       session = ManagedSession.fromInfo(persisted)
     }
 
+    // pendingCompact for persisted sessions (no active runtime): a compacted
+    // session has its engineRef cleared, so skip the missing-engineRef guard
+    // below and force a fresh startThread() seeded with the continuation prompt.
+    if (!forceRestart && session.isPendingCompact()) {
+      log.info('resumeSessionInternal: pendingCompact detected on persisted session, forcing fresh startThread()', { sessionId })
+      forceRestart = true
+    }
+
     // Engine/model selection drift check — covers persisted sessions restored
     // from store (no active runtime). Idempotent: no-op if already applied above.
     const desiredEngineSwitched = this.applyDesiredEngineSelection(session)
@@ -1427,6 +1492,10 @@ export class SessionOrchestrator {
 
     session.addMessage('user', userContentToBlocks(message))
     session.transition({ type: 'resume_session' })
+    // Clear pendingCompact NOW so a subsequent resume doesn't force-restart again.
+    if (session.isPendingCompact()) {
+      session.clearPendingCompact()
+    }
 
     // Dispatch user message + state update
     const lastMsg = session.getLastMessage()
