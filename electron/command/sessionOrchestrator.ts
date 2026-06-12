@@ -255,6 +255,8 @@ export class SessionOrchestrator {
   private readonly engineBootstrapRegistry: EngineBootstrapRegistry
   private readonly workspaceResolver: SessionWorkspaceResolver
   private auditTimer: ReturnType<typeof setInterval> | null = null
+  /** Sessions currently undergoing a compact operation (prevents concurrent auto-compact). */
+  private compactingSessionIds = new Set<string>()
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps
@@ -1079,21 +1081,25 @@ export class SessionOrchestrator {
 
     // ── Auto-compact at 90% context usage ──────────────────────────────────────────
     {
-      const snapshot =
-        this.runtimes.get(sessionId)?.session.snapshot() ??
-        (await this.store.getSnapshot(sessionId)) ??
-        null
+      const snapshot = this.runtimes.get(sessionId)?.session.snapshot()
+        ?? (await this.store.getSnapshot(sessionId))
+        ?? null
       if (snapshot) {
         const { usedTokens, limitTokens } = resolveContextDisplayState(snapshot)
-        if (limitTokens > 0 && usedTokens / limitTokens >= 0.9) {
+        if (limitTokens > 0 && usedTokens / limitTokens >= 0.9 && !this.compactingSessionIds.has(sessionId)) {
           log.info('sendMessage: auto-compact triggered (>= 90% context usage)', {
             sessionId,
             ratio: Math.round((usedTokens / limitTokens) * 100),
           })
-          const compacted = await this.compactSession(sessionId, 'auto')
-          if (!compacted) {
-            log.warn('sendMessage: auto-compact failed, proceeding without compaction', { sessionId })
-            // Do NOT return false — continue sending the message.
+          this.compactingSessionIds.add(sessionId)
+          try {
+            const compacted = await this.compactSession(sessionId, 'auto')
+            if (!compacted) {
+              log.warn('sendMessage: auto-compact failed, proceeding without compaction', { sessionId })
+              // Do NOT return false — continue sending the message.
+            }
+          } finally {
+            this.compactingSessionIds.delete(sessionId)
           }
         }
       }
