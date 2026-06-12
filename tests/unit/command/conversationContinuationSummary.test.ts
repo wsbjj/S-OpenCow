@@ -100,3 +100,107 @@ describe('assembleContinuationLayers', () => {
     expect(layers.layer3InputTurns).toHaveLength(0)
   })
 })
+
+// ── LLM 摘要与上下文构建测试 ─────────────────────────────────────────────────
+import { buildLayer3Summary, buildCompactContinuationContext, formatContinuationAsSystemPrompt } from '../../../electron/command/conversationContinuationSummary'
+import type { HeadlessLLMClient } from '../../../electron/llm/types'
+import type { ConversationTurn } from '../../../electron/command/conversationContinuationSummary'
+import type { CompactContinuationContext } from '../../../src/shared/types'
+
+describe('buildLayer3Summary', () => {
+  it('returns LLM result when client succeeds', async () => {
+    const mockClient: HeadlessLLMClient = {
+      query: async () => 'LLM summary output',
+    }
+    const inputTurns: ConversationTurn[] = [
+      { userText: 'question', botBrief: 'answer', botFullText: 'answer', rawMessages: [] },
+    ]
+    const result = await buildLayer3Summary(inputTurns, mockClient)
+    expect(result.text).toBe('LLM summary output')
+    expect(result.isLLM).toBe(true)
+  })
+
+  it('falls back to deterministic summary when LLM throws', async () => {
+    const mockClient: HeadlessLLMClient = {
+      query: async () => { throw new Error('API error') },
+    }
+    const inputTurns: ConversationTurn[] = [
+      { userText: 'question 1', botBrief: 'answer', botFullText: 'answer', rawMessages: [] },
+      { userText: 'question 2', botBrief: 'answer', botFullText: 'answer', rawMessages: [] },
+    ]
+    const result = await buildLayer3Summary(inputTurns, mockClient)
+    expect(result.isLLM).toBe(false)
+    expect(result.text).toContain('question 1')
+    expect(result.text).toContain('question 2')
+  })
+
+  it('truncates deterministic fallback to 2000 chars', async () => {
+    const mockClient: HeadlessLLMClient = {
+      query: async () => { throw new Error('fail') },
+    }
+    const inputTurns: ConversationTurn[] = Array.from({ length: 20 }, (_, i) => ({
+      userText: 'x'.repeat(200) + ` turn ${i}`,
+      botBrief: '',
+      botFullText: '',
+      rawMessages: [],
+    }))
+    const result = await buildLayer3Summary(inputTurns, mockClient)
+    expect(result.isLLM).toBe(false)
+    expect(result.text.length).toBeLessThanOrEqual(2010) // 2000 + ellipsis
+  })
+
+  it('returns empty string when no input turns', async () => {
+    const mockClient: HeadlessLLMClient = { query: async () => 'never called' }
+    const result = await buildLayer3Summary([], mockClient)
+    expect(result.text).toBe('')
+    expect(result.isLLM).toBe(false)
+  })
+})
+
+describe('buildCompactContinuationContext', () => {
+  it('assembles full context with LLM summary', async () => {
+    const mockClient: HeadlessLLMClient = { query: async () => 'summary text' }
+    const messages = buildTurns(15)
+    const ctx = await buildCompactContinuationContext({ messages, llmClient: mockClient })
+    expect(ctx.layer3Summary).toBe('summary text')
+    expect(ctx.layer3IsLLM).toBe(true)
+    expect(ctx.layer1TurnCount).toBe(3)
+    expect(ctx.layer2UserPrompts).toHaveLength(10)
+    expect(ctx.totalTurnsCompacted).toBe(2) // turns 14–15 = 2 turns in layer 3
+  })
+})
+
+describe('formatContinuationAsSystemPrompt', () => {
+  it('produces XML output containing summary and layer 2 turns', () => {
+    const ctx: CompactContinuationContext = {
+      layer1TurnCount: 3,
+      layer2UserPrompts: ['prompt A', 'prompt B'],
+      layer2BotBriefs: ['brief A', 'brief B'],
+      layer3Summary: 'the summary',
+      layer3IsLLM: true,
+      compactedAt: 0,
+      totalTurnsCompacted: 5,
+    }
+    const output = formatContinuationAsSystemPrompt(ctx, [])
+    expect(output).toContain('<context_continuation>')
+    expect(output).toContain('the summary')
+    expect(output).toContain('prompt A')
+    expect(output).toContain('brief A')
+    expect(output).toContain('</context_continuation>')
+  })
+
+  it('encodes XML special characters in user prompts', () => {
+    const ctx: CompactContinuationContext = {
+      layer1TurnCount: 1,
+      layer2UserPrompts: ['<script>alert("xss")</script>'],
+      layer2BotBriefs: ['safe'],
+      layer3Summary: '',
+      layer3IsLLM: false,
+      compactedAt: 0,
+      totalTurnsCompacted: 0,
+    }
+    const output = formatContinuationAsSystemPrompt(ctx, [])
+    expect(output).not.toContain('<script>')
+    expect(output).toContain('&lt;script&gt;')
+  })
+})

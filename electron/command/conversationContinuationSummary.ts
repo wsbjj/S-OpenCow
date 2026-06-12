@@ -3,7 +3,9 @@
 import type {
   ManagedSessionMessage,
   ContentBlock,
+  CompactContinuationContext,
 } from '../../src/shared/types'
+import type { HeadlessLLMClient } from '../llm/types'
 import { createLogger } from '../platform/logger'
 
 const log = createLogger('ContinuationSummary')
@@ -14,6 +16,9 @@ const LAYER_1_TURNS = 3
 const LAYER_2_TURNS = 10
 const LAYER_3_TURNS = 20
 const BOT_BRIEF_LIMIT = 150
+const LAYER_3_SUMMARY_MAX_TOKENS = 600
+const LAYER_3_FALLBACK_MAX_CHARS = 2000
+const LLM_TIMEOUT_MS = 30_000
 
 // ─── Internal types ─────────────────────────────────────────────────────────
 
@@ -134,4 +139,172 @@ export function assembleContinuationLayers(turns: ConversationTurn[]): Assembled
     layer2BotBriefs,
     layer3InputTurns,
   }
+}
+
+// ─── Layer 3 LLM summary ─────────────────────────────────────────────────
+
+interface Layer3SummaryResult {
+  text: string
+  isLLM: boolean
+}
+
+/**
+ * Call the HeadlessLLMClient to summarize Layer 3 turns.
+ * Falls back to deterministic user-prompt concatenation on error.
+ */
+export async function buildLayer3Summary(
+  inputTurns: ConversationTurn[],
+  llmClient: HeadlessLLMClient,
+): Promise<Layer3SummaryResult> {
+  if (inputTurns.length === 0) return { text: '', isLLM: false }
+
+  const formatted = inputTurns
+    .map((t, i) => `[Turn ${i + 1}]\nUser: ${t.userText}\nAssistant: ${t.botFullText}`)
+    .join('\n\n')
+
+  const userMessage = [
+    '你是一个对话压缩助手。以下是一段用户与 AI 的对话历史（从最旧到最近）。',
+    '请将其压缩为一段不超过 600 字的摘要，需包含：',
+    '1. 任务背景与目标',
+    '2. 已完成的关键操作（文件修改、功能实现等）',
+    '3. 当前状态与遗留问题',
+    '',
+    '不要重复用户的原始提问，聚焦于"做了什么、结果如何"。',
+    '',
+    formatted,
+  ].join('\n')
+
+  try {
+    const text = await llmClient.query({
+      systemPrompt: '你是一个简洁、准确的对话摘要助手。',
+      userMessage,
+      maxTokens: LAYER_3_SUMMARY_MAX_TOKENS,
+      timeoutMs: LLM_TIMEOUT_MS,
+    })
+    return { text: text.trim(), isLLM: true }
+  } catch (err) {
+    log.warn('Layer 3 LLM summary failed, using deterministic fallback', err)
+    return { text: buildDeterministicFallback(inputTurns), isLLM: false }
+  }
+}
+
+function buildDeterministicFallback(inputTurns: ConversationTurn[]): string {
+  const joined = inputTurns.map((t) => t.userText).join('\n')
+  if (joined.length <= LAYER_3_FALLBACK_MAX_CHARS) return joined
+  return joined.slice(0, LAYER_3_FALLBACK_MAX_CHARS) + '…（更早内容已省略）'
+}
+
+// ─── Main entry point ─────────────────────────────────────────────────────
+
+export interface BuildCompactContinuationParams {
+  messages: readonly ManagedSessionMessage[]
+  llmClient: HeadlessLLMClient
+}
+
+/**
+ * Build a CompactContinuationContext from the session's full message history.
+ * Pure data assembly + one LLM call (with deterministic fallback).
+ */
+export async function buildCompactContinuationContext(
+  params: BuildCompactContinuationParams,
+): Promise<CompactContinuationContext> {
+  const { messages, llmClient } = params
+
+  const turns = groupMessagesIntoTurns(messages)
+  const layers = assembleContinuationLayers(turns)
+  const layer3Result = await buildLayer3Summary(layers.layer3InputTurns, llmClient)
+
+  return {
+    layer1TurnCount: layers.layer1TurnCount,
+    layer2UserPrompts: layers.layer2UserPrompts,
+    layer2BotBriefs: layers.layer2BotBriefs,
+    layer3Summary: layer3Result.text,
+    layer3IsLLM: layer3Result.isLLM,
+    compactedAt: Date.now(),
+    totalTurnsCompacted: layers.layer3InputTurns.length,
+  }
+}
+
+// ─── System prompt formatter ─────────────────────────────────────────────
+
+/**
+ * Serialize a CompactContinuationContext into an XML system prompt block.
+ * Layer 3 summary + Layer 2 turns + optionally Layer 1 as recent_turns.
+ *
+ * For Claude: pass layer1Messages = [] (Layer 1 is passed as actual messages)
+ * For Codex: pass layer1Messages = actual messages (no message replay support)
+ */
+export function formatContinuationAsSystemPrompt(
+  ctx: CompactContinuationContext,
+  layer1Messages: ManagedSessionMessage[],
+): string {
+  const parts: string[] = ['<context_continuation>']
+
+  if (ctx.layer3Summary) {
+    parts.push('  <summary>')
+    parts.push(ctx.layer3Summary)
+    parts.push('  </summary>')
+    parts.push('')
+  }
+
+  if (ctx.layer2UserPrompts.length > 0) {
+    parts.push('  <previous_turns>')
+    for (let i = 0; i < ctx.layer2UserPrompts.length; i++) {
+      const n = i + 1
+      parts.push(`    <turn n="${n}">`)
+      parts.push(`      <user>${escapeXml(ctx.layer2UserPrompts[i])}</user>`)
+      if (ctx.layer2BotBriefs[i]) {
+        parts.push(`      <assistant_brief>${escapeXml(ctx.layer2BotBriefs[i])}</assistant_brief>`)
+      }
+      parts.push('    </turn>')
+    }
+    parts.push('  </previous_turns>')
+    parts.push('')
+  }
+
+  if (layer1Messages.length > 0) {
+    parts.push('  <recent_turns>')
+    let turnN = 0
+    let currentUser: string | null = null
+    let assistantParts: string[] = []
+
+    for (const msg of layer1Messages) {
+      if (msg.role === 'user') {
+        if (currentUser !== null) {
+          turnN++
+          parts.push(`    <turn n="${turnN}">`)
+          parts.push(`      <user>${escapeXml(currentUser)}</user>`)
+          if (assistantParts.length > 0) {
+            parts.push(`      <assistant>${escapeXml(assistantParts.join('\n'))}</assistant>`)
+          }
+          parts.push('    </turn>')
+          assistantParts = []
+        }
+        currentUser = extractText(msg.content)
+      } else if (msg.role === 'assistant' && currentUser !== null) {
+        assistantParts = [...assistantParts, extractText(msg.content)]
+      }
+    }
+    if (currentUser !== null) {
+      turnN++
+      parts.push(`    <turn n="${turnN}">`)
+      parts.push(`      <user>${escapeXml(currentUser)}</user>`)
+      if (assistantParts.length > 0) {
+        parts.push(`      <assistant>${escapeXml(assistantParts.join('\n'))}</assistant>`)
+      }
+      parts.push('    </turn>')
+    }
+    parts.push('  </recent_turns>')
+  }
+
+  parts.push('</context_continuation>')
+  return parts.join('\n')
+}
+
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
