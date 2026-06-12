@@ -69,6 +69,11 @@ export interface UseMessageComposerOptions {
    * When omitted, falls back to settings.command.defaultEngine.
    */
   engineKind?: AIEngineKind
+  /**
+   * Session ID for native slash command actions (e.g. compact context).
+   * Required for Codex sessions. Undefined = native actions are no-ops.
+   */
+  sessionId?: string
 }
 
 export interface MessageComposerDragHandlers {
@@ -187,6 +192,7 @@ export function useMessageComposer(options: UseMessageComposerOptions): MessageC
     onSubmit,
     cacheKey,
     engineKind,
+    sessionId,
   } = options
 
   const defaultEngine = useSettingsStore((s) => s.settings?.command.defaultEngine ?? 'claude')
@@ -308,7 +314,18 @@ export function useMessageComposer(options: UseMessageComposerOptions): MessageC
 
   /* -- Slash commands (shared hook) -- */
 
-  const slash = useSlashSuggestion({ engineKind: effectiveEngineKind })
+  const slash = useSlashSuggestion({
+    engineKind: effectiveEngineKind,
+    onNativeAction: sessionId
+      ? (item) => {
+          if (item.nativeAction?.kind === 'codex.compact_context') {
+            getAppAPI()['command:compact-session'](sessionId).catch((err: unknown) => {
+              log.warn('command:compact-session IPC failed', err)
+            })
+          }
+        }
+      : undefined,
+  })
   const slashSuggestion = slash.suggestion
 
   /* -- File mention (@) -- delegated to useFileSearch hook */
