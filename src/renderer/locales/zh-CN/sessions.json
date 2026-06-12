@@ -257,7 +257,10 @@
     "payloadTooLargeLine": "请求体过大，请新建会话",
     "reconnectingLine": "Codex 服务暂时不可用，正在重连（{{retry}}）。",
     "reconnectingLineNoRetry": "Codex 服务暂时不可用，正在重连。",
-    "reconnectingToast": "Codex 服务暂时不可用，正在重连（{{retry}}）。"
+    "reconnectingToast": "Codex 服务暂时不可用，正在重连（{{retry}}）。",
+    "apiRetryLine": "上游服务暂时不可用，正在重试（{{retry}}）。可随时点停止中断。",
+    "apiRetryLineNoRetry": "上游服务暂时不可用，正在重试。可随时点停止中断。",
+    "apiRetryToast": "上游服务返回 502，正在重试（{{retry}}）。可点停止中断。"
   },
   "taskWidget": {
     "state": {

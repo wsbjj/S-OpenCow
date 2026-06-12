@@ -76,20 +76,37 @@ function logEngineDiagnostic(params: {
 
 const CODEX_RECONNECTING_DIAGNOSTIC_CODE = 'codex.reconnecting'
 const CODEX_PAYLOAD_TOO_LARGE_DIAGNOSTIC_CODE = 'codex.payload_too_large'
-const USER_VISIBLE_CODEX_DIAGNOSTIC_CODES = new Set([
+const CLAUDE_API_RETRY_DIAGNOSTIC_CODE = 'claude.api_retry'
+// Diagnostics that surface to the user (system-event line, sometimes a toast).
+// claude.api_retry is included so upstream 502/retry storms are visible instead
+// of leaving the user staring at a silent, unresponsive session for minutes.
+const USER_VISIBLE_DIAGNOSTIC_CODES = new Set([
   CODEX_RECONNECTING_DIAGNOSTIC_CODE,
   CODEX_PAYLOAD_TOO_LARGE_DIAGNOSTIC_CODE,
+  CLAUDE_API_RETRY_DIAGNOSTIC_CODE,
+])
+// Diagnostics that also raise a transient toast on first occurrence.
+const TOAST_DIAGNOSTIC_CODES = new Set([
+  CODEX_RECONNECTING_DIAGNOSTIC_CODE,
+  CLAUDE_API_RETRY_DIAGNOSTIC_CODE,
 ])
 const ENGINE_DIAGNOSTIC_TOAST_DURATION_MS = 6_000
 const RECONNECTING_RETRY_RE = /^Reconnecting\.\.\.\s+(\d+)\/(\d+)/i
+// Claude SDK retry line, e.g. "API retry attempt 1/10 (HTTP 502) [server_error], retrying in 60000ms"
+const CLAUDE_API_RETRY_RE = /API retry attempt\s+(\d+)\/(\d+)/i
 const SERVICE_UNAVAILABLE_RE = /\b503\b|Service Unavailable/i
+
+const DIAGNOSTIC_TOAST_I18N_KEY: Record<string, string> = {
+  [CODEX_RECONNECTING_DIAGNOSTIC_CODE]: 'sessions:engineDiagnostics.reconnectingToast',
+  [CLAUDE_API_RETRY_DIAGNOSTIC_CODE]: 'sessions:engineDiagnostics.apiRetryToast',
+}
 
 function engineDiagnosticRefId(event: Pick<EngineDiagnosticEvent, 'code' | 'source'>): string {
   return `engine-diagnostic:${event.code}:${event.source ?? 'unknown'}`
 }
 
 function parseRetryProgress(message: string): Pick<EngineDiagnosticEvent, 'retryCurrent' | 'retryTotal'> {
-  const match = RECONNECTING_RETRY_RE.exec(message)
+  const match = RECONNECTING_RETRY_RE.exec(message) ?? CLAUDE_API_RETRY_RE.exec(message)
   if (!match) return {}
   return {
     retryCurrent: Number(match[1]),
@@ -129,7 +146,7 @@ function applyUserVisibleEngineDiagnostic(params: {
   ctx: SessionContext
 }): void {
   const { effect, ctx } = params
-  if (!USER_VISIBLE_CODEX_DIAGNOSTIC_CODES.has(effect.payload.code)) return
+  if (!USER_VISIBLE_DIAGNOSTIC_CODES.has(effect.payload.code)) return
 
   const now = Date.now()
   const refId = engineDiagnosticRefId(effect.payload)
@@ -151,12 +168,14 @@ function applyUserVisibleEngineDiagnostic(params: {
   const event = buildEngineDiagnosticSystemEvent({ payload: effect.payload, now })
   const messageId = ctx.session.addSystemEvent(event)
   ctx.dispatchMessageById(messageId)
-  if (effect.payload.code !== CODEX_RECONNECTING_DIAGNOSTIC_CODE) return
+
+  const toastI18nKey = DIAGNOSTIC_TOAST_I18N_KEY[effect.payload.code]
+  if (!TOAST_DIAGNOSTIC_CODES.has(effect.payload.code) || !toastI18nKey) return
 
   ctx.dispatch({
     type: 'ui:toast',
     payload: {
-      i18nKey: 'sessions:engineDiagnostics.reconnectingToast',
+      i18nKey: toastI18nKey,
       values: { retry: formatRetryProgress(event) },
       duration: ENGINE_DIAGNOSTIC_TOAST_DURATION_MS,
     },

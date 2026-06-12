@@ -120,6 +120,10 @@ export const SystemEventView = memo(function SystemEventView({ event }: SystemEv
         ? retryLabel
           ? t('engineDiagnostics.reconnectingLine', { retry: retryLabel })
           : t('engineDiagnostics.reconnectingLineNoRetry')
+        : event.code === 'claude.api_retry'
+        ? retryLabel
+          ? t('engineDiagnostics.apiRetryLine', { retry: retryLabel })
+          : t('engineDiagnostics.apiRetryLineNoRetry')
         : event.message
       const color = event.severity === 'error'
         ? 'text-red-500'

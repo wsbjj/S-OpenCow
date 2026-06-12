@@ -285,6 +285,85 @@ describe('applyConversationDomainEffects', () => {
     expect(ctx.dispatch).not.toHaveBeenCalled()
   })
 
+  it('projects claude api_retry diagnostics to one visible system event and toast', () => {
+    const ctx = makeContext({ engineKind: 'claude' })
+
+    applyConversationDomainEffects({
+      effects: [
+        makeEngineDiagnosticEffect({
+          code: 'claude.api_retry',
+          source: 'claude-sdk',
+          message: 'API retry attempt 1/10 (HTTP 502) [server_error], retrying in 60000ms',
+        }),
+      ],
+      ctx,
+    })
+
+    expect(ctx.session.addSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'engine_diagnostic',
+        code: 'claude.api_retry',
+        severity: 'warning',
+        source: 'claude-sdk',
+        terminal: false,
+        retryCurrent: 1,
+        retryTotal: 10,
+        serviceUnavailable: false,
+        occurrenceCount: 1,
+      }),
+    )
+    expect(ctx.dispatchMessageById).toHaveBeenCalledWith('sys-1')
+    expect(ctx.dispatch).toHaveBeenCalledWith({
+      type: 'ui:toast',
+      payload: {
+        i18nKey: 'sessions:engineDiagnostics.apiRetryToast',
+        values: { retry: '1/10' },
+        duration: 6000,
+      },
+    })
+  })
+
+  it('updates the existing claude api_retry diagnostic instead of creating duplicate toasts', () => {
+    const ctx = makeContext({ engineKind: 'claude' })
+    ctx.session.getSystemEventMessageId = vi.fn(() => 'sys-existing')
+    const stored = {
+      type: 'engine_diagnostic' as const,
+      code: 'claude.api_retry',
+      severity: 'warning' as const,
+      source: 'claude-sdk',
+      message: 'API retry attempt 1/10 (HTTP 502) [server_error], retrying in 60000ms',
+      terminal: false,
+      retryCurrent: 1,
+      retryTotal: 10,
+      serviceUnavailable: false,
+      occurrenceCount: 1,
+      firstSeenAtMs: 1,
+      lastSeenAtMs: 1,
+    }
+    ctx.session.updateSystemEvent = vi.fn((_refId: string, updater: (e: typeof stored) => void) => {
+      updater(stored)
+    })
+
+    applyConversationDomainEffects({
+      effects: [
+        makeEngineDiagnosticEffect({
+          code: 'claude.api_retry',
+          source: 'claude-sdk',
+          message: 'API retry attempt 2/10 (HTTP 502) [server_error], retrying in 60000ms',
+        }),
+      ],
+      ctx,
+    })
+
+    expect(ctx.session.addSystemEvent).not.toHaveBeenCalled()
+    expect(stored.retryCurrent).toBe(2)
+    expect(stored.occurrenceCount).toBe(2)
+    // No second toast on update — only first occurrence raises a toast.
+    expect(ctx.dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'ui:toast' }),
+    )
+  })
+
   it('apply_turn_usage only does token accounting — no context tracking', () => {
     const ctx = makeContext({ engineKind: 'codex' })
     const effects: ConversationDomainEffect[] = [

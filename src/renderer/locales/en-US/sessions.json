@@ -257,7 +257,10 @@
     "payloadTooLargeLine": "Request body is too large. Start a new session.",
     "reconnectingLine": "Codex service is temporarily unavailable. Reconnecting ({{retry}}).",
     "reconnectingLineNoRetry": "Codex service is temporarily unavailable. Reconnecting.",
-    "reconnectingToast": "Codex service is temporarily unavailable. Reconnecting ({{retry}})."
+    "reconnectingToast": "Codex service is temporarily unavailable. Reconnecting ({{retry}}).",
+    "apiRetryLine": "Upstream service is temporarily unavailable. Retrying ({{retry}}). You can press stop to interrupt.",
+    "apiRetryLineNoRetry": "Upstream service is temporarily unavailable. Retrying. You can press stop to interrupt.",
+    "apiRetryToast": "Upstream service returned 502. Retrying ({{retry}}). Press stop to interrupt."
   },
   "taskWidget": {
     "state": {
