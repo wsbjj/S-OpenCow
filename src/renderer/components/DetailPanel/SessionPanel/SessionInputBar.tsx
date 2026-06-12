@@ -32,6 +32,8 @@ interface SessionInputBarProps {
   sessionControl?: SessionControlProps
   /** Optional session/new-chat model switcher state. */
   modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
+  /** Session ID for IPC-based native actions (e.g. /compact). */
+  sessionId?: string
 }
 
 /** Imperative handle exposed to parent components via ref. */
@@ -50,7 +52,7 @@ export interface SessionInputBarHandle {
  * SessionInputBar's props (onSend, disabled, placeholder, etc.) only change
  * at state transitions (idle → streaming, streaming → idle), NOT on every chunk.
  */
-export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInputBarProps>(function SessionInputBar({ onSend, disabled, placeholder, engineKind, cacheKey, sessionControl, modelSelection }: SessionInputBarProps, ref): React.JSX.Element {
+export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInputBarProps>(function SessionInputBar({ onSend, disabled, placeholder, engineKind, cacheKey, sessionControl, modelSelection, sessionId }: SessionInputBarProps, ref): React.JSX.Element {
   const { t } = useTranslation('sessions')
   const { t: tCommon } = useTranslation('common')
   const { projectPath } = useProjectScope()
@@ -80,6 +82,7 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
     onSubmit: onSend,
     cacheKey,
     engineKind,
+    sessionId,
   })
 
   /* -- Expose addAttachments to parent (for console-wide file drop zone) -- */

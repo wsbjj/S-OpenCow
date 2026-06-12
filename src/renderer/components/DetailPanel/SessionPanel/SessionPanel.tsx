@@ -772,6 +772,7 @@ export const SessionPanel = React.memo(function SessionPanel({
                       cacheKey={inputCacheKey}
                       sessionControl={sessionControlProps}
                       modelSelection={inputModelSelection}
+                      sessionId={sessionId || undefined}
                     />
                   )}
                 </div>

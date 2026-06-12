@@ -108,6 +108,7 @@ export function ReviewChatPanel({
     ariaLabel: 'Review chat input',
     onSubmit: handleSubmit,
     engineKind: review.session?.engineKind,
+    sessionId: review.session?.id,
   })
 
   // ── Slash command popover (click-triggered) ──
