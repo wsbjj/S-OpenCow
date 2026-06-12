@@ -229,10 +229,13 @@ export async function buildCompactContinuationContext(
 
 /**
  * Serialize a CompactContinuationContext into an XML system prompt block.
- * Layer 3 summary + Layer 2 turns + optionally Layer 1 as recent_turns.
+ * Layer 3 summary + Layer 2 turns + Layer 1 as recent_turns.
  *
- * For Claude: pass layer1Messages = [] (Layer 1 is passed as actual messages)
- * For Codex: pass layer1Messages = actual messages (no message replay support)
+ * Layer 1 messages are included as <recent_turns> for both Claude and Codex
+ * because startThread() creates a fresh thread with no message replay.
+ *
+ * @param ctx - The continuation context
+ * @param layer1Messages - Layer 1 raw messages to include as recent turns
  */
 export function formatContinuationAsSystemPrompt(
   ctx: CompactContinuationContext,
