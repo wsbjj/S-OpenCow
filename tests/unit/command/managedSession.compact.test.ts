@@ -99,3 +99,39 @@ describe('ManagedSession.applyCompactContinuation', () => {
     expect(session.isPendingCompact()).toBe(false)
   })
 })
+
+describe('ManagedSession.fromInfo compact restoration', () => {
+  it('restores pendingCompact=true from persistence record', () => {
+    const session = makeSession()
+    session.applyCompactContinuation({
+      ctx: MOCK_CTX,
+      continuationSystemPrompt: '<ctx/>',
+      preTokens: 0,
+      trigger: 'manual',
+    })
+    expect(session.isPendingCompact()).toBe(true)
+
+    // Simulate persist + restore
+    const record = session.toPersistenceRecord()
+    const restored = ManagedSession.fromInfo(record)
+
+    expect(restored.isPendingCompact()).toBe(true)
+  })
+
+  it('restores compactContinuationContext from persistence record', () => {
+    const session = makeSession()
+    session.applyCompactContinuation({
+      ctx: MOCK_CTX,
+      continuationSystemPrompt: '<ctx/>',
+      preTokens: 0,
+      trigger: 'manual',
+    })
+
+    const record = session.toPersistenceRecord()
+    const restored = ManagedSession.fromInfo(record)
+
+    expect(restored.getCompactContinuationContext()).toMatchObject({
+      layer3Summary: 'summary',
+    })
+  })
+})

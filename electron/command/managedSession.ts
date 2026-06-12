@@ -1147,6 +1147,8 @@ export class ManagedSession {
     if (info.executionContext) {
       session.executionContext = { ...info.executionContext }
     }
+    session.pendingCompact = info.pendingCompact ?? false
+    session.compactContinuationContext = info.compactContinuationContext ?? null
     return session
   }
 }
