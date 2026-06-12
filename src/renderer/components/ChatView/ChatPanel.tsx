@@ -10,6 +10,7 @@ import { ContextFilesProvider } from '@/contexts/ContextFilesContext'
 import { ContextFileDropZone } from '@/components/DetailPanel/ContextFileDropZone'
 import { PillDropdown } from '@/components/ui/PillDropdown'
 import { formatRelativeTime } from '@/components/DetailPanel/SessionPanel/artifactUtils'
+import { agentChatNewDraftKey, managedSessionDraftKey } from '@/lib/messageDraftKeys'
 import { cn } from '@/lib/utils'
 import type { AgentSessionHandle } from '@/hooks/useAgentSession'
 import { useSessionMessages } from '@/hooks/useSessionMessages'
@@ -255,7 +256,13 @@ function ChatPanelBody({ agent }: { agent: AgentSessionHandle }): React.JSX.Elem
 
   // Empty state: no session and not starting
   if (!agent.session && !agent.isStarting) {
-    return <ChatPanelEmpty onSend={agent.sendOrQueue} modelSelection={agent.modelSelection} />
+    return (
+      <ChatPanelEmpty
+        onSend={agent.sendOrQueue}
+        projectId={agent.projectId}
+        modelSelection={agent.modelSelection}
+      />
+    )
   }
 
   // Loading state: session is being created
@@ -277,9 +284,11 @@ function ChatPanelBody({ agent }: { agent: AgentSessionHandle }): React.JSX.Elem
 
 function ChatPanelEmpty({
   onSend,
+  projectId,
   modelSelection,
 }: {
   onSend: (message: UserMessageContent) => Promise<boolean>
+  projectId: string | null
   modelSelection: AgentSessionHandle['modelSelection']
 }): React.JSX.Element {
   const { t } = useTranslation('sessions')
@@ -301,6 +310,7 @@ function ChatPanelEmpty({
         <ChatHeroInput
           onSend={onSend}
           engineKind={modelSelection?.value?.engineKind}
+          cacheKey={agentChatNewDraftKey(projectId)}
           modelSelection={modelSelection ?? undefined}
           registerAsChatTabInput
         />
@@ -328,6 +338,7 @@ function ChatPanelActive({ agent }: { agent: AgentSessionHandle }): React.JSX.El
       controlsClassName="px-3"
       pausedPlaceholder={t('agentChat.continueConversation')}
       modelSelection={agent.modelSelection ?? undefined}
+      inputCacheKey={managedSessionDraftKey(agent.session!.id)}
       registerAsChatTabInput
     />
   )

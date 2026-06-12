@@ -27,6 +27,8 @@ interface ChatHeroInputProps {
   sessionControl?: SessionControlProps
   /** Optional session/new-chat model switcher state. */
   modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
+  /** Cache key for preserving draft content across input remounts. */
+  cacheKey?: string
   /** Registers this instance as the Chat tab's active focus target. */
   registerAsChatTabInput?: boolean
 }
@@ -56,6 +58,7 @@ export const ChatHeroInput = forwardRef<ChatHeroInputHandle, ChatHeroInputProps>
   engineKind,
   sessionControl,
   modelSelection,
+  cacheKey,
   registerAsChatTabInput = false,
 }: ChatHeroInputProps, ref): React.JSX.Element {
   const { t } = useTranslation('sessions')
@@ -83,6 +86,7 @@ export const ChatHeroInput = forwardRef<ChatHeroInputHandle, ChatHeroInputProps>
     ariaLabel: t('chatHero.inputAria'),
     onSubmit: onSend,
     engineKind,
+    cacheKey,
   })
 
   useImperativeHandle(ref, () => ({

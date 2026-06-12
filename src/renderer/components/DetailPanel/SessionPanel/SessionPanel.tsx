@@ -36,6 +36,7 @@ import { useIssueStore } from '@/stores/issueStore'
 import { useNoteStore } from '@/stores/noteStore'
 import { useSessionByBinding, type SessionBinding } from '@/hooks/useSessionForIssue'
 import { SessionStarProvider } from './FileStarButton'
+import { issueSessionDraftKey, managedSessionDraftKey } from '@/lib/messageDraftKeys'
 import {
   buildChatModelOptions,
   resolveSessionChatModelSelection,
@@ -196,6 +197,7 @@ export const SessionPanel = React.memo(function SessionPanel({
   // ---------------------------------------------------------------------------
 
   const sessionId = session?.id ?? ''
+  const inputCacheKey = issueId ? issueSessionDraftKey(issueId) : sessionId ? managedSessionDraftKey(sessionId) : undefined
   const state = session?.state
 
   // ─── On-demand session loading ─────────────────────────────────────────────
@@ -767,7 +769,7 @@ export const SessionPanel = React.memo(function SessionPanel({
                       disabled={false}
                       placeholder={isResumeState ? t('agentChat.continueConversation') : undefined}
                       engineKind={inputModelSelection?.value?.engineKind ?? session?.engineKind}
-                      cacheKey={issueId}
+                      cacheKey={inputCacheKey}
                       sessionControl={sessionControlProps}
                       modelSelection={inputModelSelection}
                     />

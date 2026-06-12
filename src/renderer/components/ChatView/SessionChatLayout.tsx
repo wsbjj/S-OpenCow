@@ -25,6 +25,7 @@ import { ConnectedContentViewer } from '@/components/DetailPanel/SessionPanel/Co
 import { ChatHeroInput } from './ChatHeroInput'
 import type { ChatHeroInputHandle } from './ChatHeroInput'
 import { cn } from '@/lib/utils'
+import { managedSessionDraftKey } from '@/lib/messageDraftKeys'
 import type { SessionSnapshot, UserMessageContent } from '@shared/types'
 import type { UseMessageQueueReturn } from '@/hooks/useMessageQueue'
 import type { ModelSwitcherProps } from '@/components/ui/ModelSwitcher'
@@ -56,6 +57,8 @@ export interface SessionChatLayoutProps {
   controlsClassName?: string
   /** Optional model switcher state for the input action row. */
   modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
+  /** Stable cache key for preserving the bottom input draft across layout switches. */
+  inputCacheKey?: string
   /**
    * Optional node rendered inline after all messages, scrolling with the list.
    * Passed through to SessionMessageList's footerNode prop.
@@ -86,6 +89,7 @@ export function SessionChatLayout({
   pausedPlaceholder,
   controlsClassName,
   modelSelection,
+  inputCacheKey,
   footerNode,
   hideContentViewer,
   registerAsChatTabInput = false,
@@ -166,6 +170,7 @@ export function SessionChatLayout({
               onSend={onSendOrQueue}
               placeholder={isPaused ? pausedPlaceholder : undefined}
               engineKind={modelSelection?.value?.engineKind ?? session.engineKind}
+              cacheKey={inputCacheKey ?? managedSessionDraftKey(session.id)}
               sessionControl={{ isProcessing, onStop }}
               modelSelection={modelSelection}
               registerAsChatTabInput={registerAsChatTabInput}

@@ -6,6 +6,7 @@ import { Sparkles, Loader2, Layers, FolderGit2 } from 'lucide-react'
 import { ChatHeroInput } from './ChatHeroInput'
 import { SessionChatLayout } from './SessionChatLayout'
 import { ProjectScopeProvider } from '@/contexts/ProjectScopeContext'
+import { agentChatNewDraftKey, managedSessionDraftKey } from '@/lib/messageDraftKeys'
 import { cn } from '@/lib/utils'
 import type { AgentSessionHandle } from '@/hooks/useAgentSession'
 import type { UserMessageContent } from '@shared/types'
@@ -50,6 +51,7 @@ export function AgentChatView({ agent }: AgentChatViewProps): React.JSX.Element 
           key={agent.projectPath ?? '__all__'}
           onSend={agent.sendOrQueue}
           projectName={agent.projectName}
+          projectId={agent.projectId}
           modelSelection={agent.modelSelection}
         />
       </ProjectScopeProvider>
@@ -76,6 +78,7 @@ export function AgentChatView({ agent }: AgentChatViewProps): React.JSX.Element 
           controlsMaxW={CONTENT_MAX_W}
           pausedPlaceholder={t('agentChat.continueConversation')}
           modelSelection={agent.modelSelection ?? undefined}
+          inputCacheKey={managedSessionDraftKey(agent.session.id)}
           registerAsChatTabInput
         />
       </ProjectScopeProvider>
@@ -159,10 +162,12 @@ function SuggestionChips({
 function EmptyChat({
   onSend,
   projectName,
+  projectId,
   modelSelection,
 }: {
   onSend: (message: UserMessageContent) => Promise<boolean>
   projectName: string | null
+  projectId: string | null
   modelSelection: AgentSessionHandle['modelSelection']
 }): React.JSX.Element {
   const { t } = useTranslation('sessions')
@@ -220,6 +225,7 @@ function EmptyChat({
             onSend={onSend}
             placeholder={placeholder}
             engineKind={modelSelection?.value?.engineKind}
+            cacheKey={agentChatNewDraftKey(projectId)}
             modelSelection={modelSelection ?? undefined}
             registerAsChatTabInput
           />

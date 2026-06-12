@@ -99,4 +99,43 @@ describe('ChatHeroInput', () => {
       expect(onSend).toHaveBeenCalledWith('Edited prompt')
     })
   })
+
+  it('restores an unsent draft when remounted with the same cache key', async () => {
+    const cacheKey = 'chat-hero-draft-restore'
+    const onSend = vi.fn().mockResolvedValue(true)
+    const { unmount } = render(<ChatHeroInput onSend={onSend} cacheKey={cacheKey} />)
+
+    const editor = await screen.findByRole('textbox')
+    await userEvent.click(editor)
+    await userEvent.type(editor, 'remember this')
+    unmount()
+
+    render(<ChatHeroInput onSend={onSend} cacheKey={cacheKey} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveTextContent('remember this')
+    })
+  })
+
+  it('clears the cached draft after a successful send', async () => {
+    const cacheKey = 'chat-hero-draft-clear-on-send'
+    const onSend = vi.fn().mockResolvedValue(true)
+    const { unmount } = render(<ChatHeroInput onSend={onSend} cacheKey={cacheKey} />)
+
+    const editor = await screen.findByRole('textbox')
+    await userEvent.click(editor)
+    await userEvent.type(editor, 'send and forget')
+    await userEvent.click(screen.getByRole('button', { name: /send message/i }))
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith('send and forget')
+    })
+
+    unmount()
+    render(<ChatHeroInput onSend={onSend} cacheKey={cacheKey} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveTextContent('')
+    })
+  })
 })

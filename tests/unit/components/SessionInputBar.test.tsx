@@ -172,4 +172,51 @@ describe('SessionInputBar', () => {
       expect(listbox.parentElement).toHaveStyle({ bottom: '72px' })
     })
   })
+
+  it('restores separate drafts when switching between cache keys', async () => {
+    const onSend = vi.fn().mockResolvedValue(true)
+    const { rerender } = render(
+      <SessionInputBar onSend={onSend} disabled={false} cacheKey="session-draft-a" />,
+    )
+
+    const editor = await getEditor()
+    await userEvent.click(editor)
+    await userEvent.type(editor, 'draft for A')
+
+    rerender(<SessionInputBar onSend={onSend} disabled={false} cacheKey="session-draft-b" />)
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveTextContent('')
+    })
+
+    await userEvent.click(screen.getByRole('textbox'))
+    await userEvent.type(screen.getByRole('textbox'), 'draft for B')
+
+    rerender(<SessionInputBar onSend={onSend} disabled={false} cacheKey="session-draft-a" />)
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveTextContent('draft for A')
+    })
+
+    rerender(<SessionInputBar onSend={onSend} disabled={false} cacheKey="session-draft-b" />)
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveTextContent('draft for B')
+    })
+  })
+
+  it('does not leak drafts between different cache keys', async () => {
+    const onSend = vi.fn().mockResolvedValue(true)
+    const { unmount } = render(
+      <SessionInputBar onSend={onSend} disabled={false} cacheKey="session-draft-isolated-a" />,
+    )
+
+    const editor = await getEditor()
+    await userEvent.click(editor)
+    await userEvent.type(editor, 'isolated draft')
+    unmount()
+
+    render(<SessionInputBar onSend={onSend} disabled={false} cacheKey="session-draft-isolated-b" />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveTextContent('')
+    })
+  })
 })
