@@ -203,4 +203,21 @@ describe('formatContinuationAsSystemPrompt', () => {
     expect(output).not.toContain('<script>')
     expect(output).toContain('&lt;script&gt;')
   })
+
+  it('escapes XML special characters in layer3Summary', () => {
+    const ctx: CompactContinuationContext = {
+      layer1TurnCount: 0,
+      layer2UserPrompts: [],
+      layer2BotBriefs: [],
+      layer3Summary: 'summary with <tag> & "quotes"',
+      layer3IsLLM: true,
+      compactedAt: 0,
+      totalTurnsCompacted: 3,
+    }
+    const output = formatContinuationAsSystemPrompt(ctx, [])
+    expect(output).not.toContain('<tag>')
+    expect(output).toContain('&lt;tag&gt;')
+    expect(output).toContain('&amp;')
+    expect(output).toContain('&quot;quotes&quot;')
+  })
 })

@@ -183,7 +183,7 @@ export async function buildLayer3Summary(
     })
     return { text: text.trim(), isLLM: true }
   } catch (err) {
-    log.warn('Layer 3 LLM summary failed, using deterministic fallback', err)
+    log.info('Layer 3 LLM summary failed, using deterministic fallback', err)
     return { text: buildDeterministicFallback(inputTurns), isLLM: false }
   }
 }
@@ -242,7 +242,7 @@ export function formatContinuationAsSystemPrompt(
 
   if (ctx.layer3Summary) {
     parts.push('  <summary>')
-    parts.push(ctx.layer3Summary)
+    parts.push(escapeXml(ctx.layer3Summary))
     parts.push('  </summary>')
     parts.push('')
   }
