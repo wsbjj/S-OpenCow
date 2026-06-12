@@ -2956,9 +2956,10 @@ export interface CompactBoundaryEvent {
   type: 'compact_boundary'
   trigger: 'manual' | 'auto'
   preTokens: number
-  /** Phase of the compact operation: 'compacting' while in progress, 'done' when finished.
+  /** Phase of the compact operation: 'compacting' while in progress, 'done' when finished,
+   *  'error' when the operation aborted (missing client, over-budget, build failure).
    *  Legacy events without phase are treated as 'done'. */
-  phase?: 'compacting' | 'done'
+  phase?: 'compacting' | 'done' | 'error'
 }
 
 /**

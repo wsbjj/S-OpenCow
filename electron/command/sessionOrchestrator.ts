@@ -1312,7 +1312,7 @@ export class SessionOrchestrator {
 
     // 3. Surface a 'compacting' boundary so the UI can show a loading state
     //    while the Layer 3 LLM summary is being generated.
-    session.addSystemEvent({
+    const compactingBoundaryId = session.addSystemEvent({
       type: 'compact_boundary',
       trigger,
       preTokens,
@@ -1321,12 +1321,23 @@ export class SessionOrchestrator {
     this.dispatchLastSystemEvent(session)
     this.dispatchSessionUpdate(session)
 
+    /** Mark the compacting boundary as 'error' and broadcast — clears the UI loading state. */
+    const abortWithError = (): false => {
+      session.updateSystemEventById(compactingBoundaryId, (event) => {
+        if (event.type === 'compact_boundary') {
+          event.phase = 'error'
+        }
+      })
+      this.dispatchLastSystemEvent(session)
+      this.dispatchSessionUpdate(session)
+      return false
+    }
+
     // 4. The LLM client factory is an optional dependency. Without it we cannot
     //    build the Layer 3 summary, so abort gracefully (no throw).
     if (!this.deps.createCompactionLLMClient) {
       log.warn('compactSession aborted: createCompactionLLMClient dependency not configured', { sessionId })
-      this.dispatchSessionUpdate(session)
-      return false
+      return abortWithError()
     }
 
     let llmClient: HeadlessLLMClient | null
@@ -1334,13 +1345,11 @@ export class SessionOrchestrator {
       llmClient = await this.deps.createCompactionLLMClient(session.getEngineKind())
     } catch (err) {
       log.error('compactSession failed to create LLM client', { sessionId, err })
-      this.dispatchSessionUpdate(session)
-      return false
+      return abortWithError()
     }
     if (!llmClient) {
       log.warn('compactSession aborted: LLM client factory returned null', { sessionId })
-      this.dispatchSessionUpdate(session)
-      return false
+      return abortWithError()
     }
 
     // 5. Build the three-layer continuation context (one LLM call + fallback).
@@ -1349,8 +1358,7 @@ export class SessionOrchestrator {
       ctx = await buildCompactContinuationContext({ messages, llmClient })
     } catch (err) {
       log.error('compactSession failed to build continuation context', { sessionId, err })
-      this.dispatchSessionUpdate(session)
-      return false
+      return abortWithError()
     }
 
     // 6. Serialize the continuation into a system prompt block. Layer 1 recent
@@ -1369,8 +1377,7 @@ export class SessionOrchestrator {
         estimatedContinuationTokens,
         limitTokens,
       })
-      this.dispatchSessionUpdate(session)
-      return false
+      return abortWithError()
     }
 
     // 8. Apply the continuation. This clears engine state, marks pendingCompact,
