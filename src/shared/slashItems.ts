@@ -46,6 +46,12 @@ export interface SlashItem {
   presentation?: SlashItemPresentation
   /** Execution metadata for advanced UX/telemetry. */
   executionMeta?: SlashItemExecutionMeta
+  /**
+   * When present, selecting this item triggers a native OpenCow action
+   * instead of inserting a slash mention into the editor.
+   * The renderer intercepts this before any message composition.
+   */
+  nativeAction?: { kind: 'codex.compact_context' }
 }
 
 /** A group of slash items by category */
@@ -67,7 +73,7 @@ const CLAUDE_BUILTIN_SLASH_COMMANDS: SlashItem[] = [
 
 /** Codex-oriented pass-through built-in commands (curated safe subset). */
 const CODEX_BUILTIN_SLASH_COMMANDS: SlashItem[] = [
-  { id: 'builtin:compact', name: 'compact', description: 'Compress conversation context', category: 'builtin', order: 1 },
+  { id: 'builtin:compact', name: 'compact', description: 'Compress conversation context', category: 'builtin', order: 1, nativeAction: { kind: 'codex.compact_context' } },
   { id: 'builtin:status', name: 'status', description: 'Show Codex session status', category: 'builtin', order: 2 },
   { id: 'builtin:plan', name: 'plan', description: 'Enter plan mode', category: 'builtin', order: 3 },
 ]

@@ -571,6 +571,10 @@ export interface IPCChannels {
     args: [sessionId: string, content?: UserMessageContent]
     return: boolean
   }
+  'command:compact-session': {
+    args: [sessionId: string]
+    return: boolean
+  }
   'command:answer-question': {
     args: [sessionId: string, requestId: string, answer: string]
     return: boolean
@@ -2957,6 +2961,27 @@ export interface CompactBoundaryEvent {
   phase?: 'compacting' | 'done'
 }
 
+/**
+ * Persisted context retained after a three-layer compaction.
+ * Stored on ManagedSession and injected into the next thread's system prompt.
+ */
+export interface CompactContinuationContext {
+  /** Layer 1: last 3 turns verbatim — message objects kept as-is for history display */
+  layer1TurnCount: number
+  /** Layer 2: user prompts (turns 4–13) kept verbatim, newest-first */
+  layer2UserPrompts: string[]
+  /** Layer 2: bot response first-150-char briefs, index-aligned with layer2UserPrompts */
+  layer2BotBriefs: string[]
+  /** Layer 3: LLM-generated or deterministic fallback summary of turns 14–33 */
+  layer3Summary: string
+  /** true = LLM-generated; false = deterministic fallback */
+  layer3IsLLM: boolean
+  /** Epoch ms when compaction happened */
+  compactedAt: number
+  /** Number of full turns included in Layer 3 summary */
+  totalTurnsCompacted: number
+}
+
 export interface EngineSwitchEvent {
   type: 'engine_switch'
   fromEngine: AIEngineKind
@@ -3316,6 +3341,10 @@ export interface SessionSnapshot {
   error: string | null
   /** Session runtime execution context; null when not yet initialized (creating phase) */
   executionContext: SessionExecutionContext | null
+  /** Compact continuation context; present after a three-layer compaction. */
+  compactContinuationContext?: CompactContinuationContext | null
+  /** When true, the next lifecycle start must use startThread() not resumeThread(). */
+  pendingCompact?: boolean
 }
 
 /**
