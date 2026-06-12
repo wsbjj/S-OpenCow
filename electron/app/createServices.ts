@@ -446,6 +446,18 @@ export async function createAppServices(deps: ServiceFactoryDeps): Promise<AppSe
         return null
       }
     },
+    createCompactionLLMClient: async (engineKind) => {
+      try {
+        const auth = await providerService.resolveBackgroundHTTPAuth(engineKind)
+        return new HeadlessLLMClientImpl({
+          resolveAuth: () => Promise.resolve(auth),
+          getFetch: () => proxyFetchFactory.getStandardFetch(),
+        })
+      } catch (err) {
+        log.warn('createCompactionLLMClient: failed to resolve background auth, compaction unavailable', { engineKind, err })
+        return null
+      }
+    },
   })
 
   // Late-bind orchestrator to marketplace service (marketplace is created before orchestrator)
