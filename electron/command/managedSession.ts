@@ -16,6 +16,7 @@ import type {
   SessionExecutionContext,
   SessionContextState,
   SessionContextTelemetry,
+  CompactContinuationContext,
   EvoseRelayEvent,
   EvoseProgressBlock,
   EvoseToolCallBlock,
@@ -167,6 +168,8 @@ export class ManagedSession {
   private _stopReason: SessionStopReason | null = null
   private systemEventIndex = new Map<string, string>()
   private executionContext: SessionExecutionContext | null = null
+  private compactContinuationContext: CompactContinuationContext | null = null
+  private pendingCompact = false
 
   constructor(config: ManagedSessionRuntimeConfig) {
     this.sessionId = `ccb-${nanoid(12)}`
@@ -537,6 +540,61 @@ export class ManagedSession {
     if (!this.contextState) return
     this.contextState = null
     this.lastActivity = Date.now()
+  }
+
+  /**
+   * Apply a compact continuation after three-layer compaction.
+   * Follows the same pattern as switchEngine():
+   * - Clears engine-specific state (ref, engineState) so the next lifecycle
+   *   starts fresh (startThread) instead of resuming.
+   * - Stores the continuation context for system prompt injection.
+   * - Marks the session as pendingCompact for resumeSessionInternal() detection.
+   * - Injects the continuation system prompt into contextSystemPrompt.
+   * - Inserts a compact_boundary marker into the message timeline.
+   */
+  applyCompactContinuation(params: {
+    ctx: CompactContinuationContext
+    continuationSystemPrompt: string
+    preTokens: number
+    trigger: 'manual' | 'auto'
+  }): void {
+    const { ctx, continuationSystemPrompt, preTokens, trigger } = params
+
+    // 1. Store continuation context
+    this.compactContinuationContext = ctx
+
+    // 2. Clear engine-specific state (next lifecycle must startThread, not resume)
+    this.engineSessionRef = null
+    this.engineState = null
+    this.clearContextState()
+
+    // 3. Mark pending compact
+    this.pendingCompact = true
+
+    // 4. Replace contextSystemPrompt with continuation
+    this.config = { ...this.config, contextSystemPrompt: continuationSystemPrompt }
+
+    // 5. Insert compact boundary marker
+    this.addSystemEvent({
+      type: 'compact_boundary',
+      trigger,
+      preTokens,
+      phase: 'done',
+    })
+
+    this.lastActivity = Date.now()
+  }
+
+  isPendingCompact(): boolean {
+    return this.pendingCompact
+  }
+
+  clearPendingCompact(): void {
+    this.pendingCompact = false
+  }
+
+  getCompactContinuationContext(): CompactContinuationContext | null {
+    return this.compactContinuationContext
   }
 
   /**
@@ -972,6 +1030,10 @@ export class ManagedSession {
       activity: this.activity,
       error: this.error,
       executionContext: this.executionContext ? { ...this.executionContext } : null,
+      compactContinuationContext: this.compactContinuationContext
+        ? { ...this.compactContinuationContext }
+        : null,
+      pendingCompact: this.pendingCompact,
     }
   }
 
