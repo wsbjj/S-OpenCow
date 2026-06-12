@@ -320,7 +320,7 @@ export function useMessageComposer(options: UseMessageComposerOptions): MessageC
       ? (item) => {
           if (item.nativeAction?.kind === 'codex.compact_context') {
             getAppAPI()['command:compact-session'](sessionId).catch((err: unknown) => {
-              log.warn('command:compact-session IPC failed', err)
+              log.warn('command:compact-session IPC failed', { sessionId, error: err })
             })
           }
         }
