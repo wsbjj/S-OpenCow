@@ -47,6 +47,7 @@ interface EngineTabPreviewProps {
 }
 
 interface BackgroundModelSectionProps {
+  engineKind: AIEngineKind
   settings: AppSettings
   updateSettings: (settings: AppSettings) => Promise<void>
 }
@@ -241,13 +242,16 @@ function EngineTabPreview({
 }
 
 function BackgroundModelSection({
+  engineKind,
   settings,
   updateSettings,
 }: BackgroundModelSectionProps): React.JSX.Element {
   const { t } = useTranslation('settings')
   const backgroundModel = useMemo<BackgroundModelSettings>(
-    () => settings.provider.backgroundModel ?? { mode: 'inherit' },
-    [settings.provider.backgroundModel],
+    () => settings.provider.byEngine[engineKind]?.backgroundModel
+      ?? settings.provider.backgroundModel
+      ?? { mode: 'inherit' },
+    [engineKind, settings.provider.backgroundModel, settings.provider.byEngine],
   )
   const isCustom = backgroundModel.mode === 'custom'
   const isInheritModel = backgroundModel.mode === 'inherit-model'
@@ -260,7 +264,8 @@ function BackgroundModelSection({
   useEffect(() => {
     let cancelled = false
     setLoadingCredential(true)
-    getAppAPI()['background-model:get-credential']()
+    setCredentialError(null)
+    getAppAPI()['background-model:get-credential'](engineKind)
       .then((credential) => {
         if (!cancelled) setApiKey(credential?.apiKey ?? '')
       })
@@ -273,18 +278,25 @@ function BackgroundModelSection({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [engineKind])
 
   const updateBackgroundModel = useCallback(async (patch: Partial<BackgroundModelSettings>) => {
     const nextBackgroundModel = buildBackgroundModelSettings(backgroundModel, patch)
+    const currentEngineSettings = settings.provider.byEngine[engineKind] ?? { activeMode: null }
     await updateSettings({
       ...settings,
       provider: {
         ...settings.provider,
-        backgroundModel: nextBackgroundModel,
+        byEngine: {
+          ...settings.provider.byEngine,
+          [engineKind]: {
+            ...currentEngineSettings,
+            backgroundModel: nextBackgroundModel,
+          },
+        },
       },
     })
-  }, [backgroundModel, settings, updateSettings])
+  }, [backgroundModel, engineKind, settings, updateSettings])
 
   const handleSaveCredential = useCallback(async () => {
     const trimmed = apiKey.trim()
@@ -292,32 +304,34 @@ function BackgroundModelSection({
     setSavingCredential(true)
     setCredentialError(null)
     try {
-      const credential = await getAppAPI()['background-model:set-credential']({ apiKey: trimmed })
+      const credential = await getAppAPI()['background-model:set-credential'](engineKind, { apiKey: trimmed })
       setApiKey(credential?.apiKey ?? '')
     } catch (eventError) {
       setCredentialError(eventError instanceof Error ? eventError.message : String(eventError))
     } finally {
       setSavingCredential(false)
     }
-  }, [apiKey])
+  }, [apiKey, engineKind])
 
   const handleClearCredential = useCallback(async () => {
     setSavingCredential(true)
     setCredentialError(null)
     try {
-      await getAppAPI()['background-model:clear-credential']()
+      await getAppAPI()['background-model:clear-credential'](engineKind)
       setApiKey('')
     } catch (eventError) {
       setCredentialError(eventError instanceof Error ? eventError.message : String(eventError))
     } finally {
       setSavingCredential(false)
     }
-  }, [])
+  }, [engineKind])
 
   return (
     <section className="rounded-lg bg-[hsl(var(--foreground)/0.03)] p-4">
       <div className="mb-4">
-        <h4 className="text-sm font-medium">{t('provider.backgroundModel.title')}</h4>
+        <h4 className="text-sm font-medium">
+          {t('provider.backgroundModel.title')} · {t(`provider.engines.${engineKind}`)}
+        </h4>
         <p className="text-xs text-[hsl(var(--muted-foreground))]">{t('provider.backgroundModel.description')}</p>
       </div>
 
@@ -1083,7 +1097,7 @@ export function ProviderSection(): React.JSX.Element {
         </Tabs>
       </section>
 
-      <BackgroundModelSection settings={settings} updateSettings={updateSettings} />
+      <BackgroundModelSection engineKind={activeEngine} settings={settings} updateSettings={updateSettings} />
 
       {error && (
         <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">

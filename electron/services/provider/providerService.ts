@@ -20,6 +20,7 @@ import type {
   AIEngineKind,
   ApiProvider,
   BackgroundModelCredentialInfo,
+  BackgroundModelSettings,
   ProviderSettings,
   ProviderStatus,
   ProviderCredentialInfo,
@@ -43,7 +44,11 @@ const ANTHROPIC_VERSION = '2023-06-01'
 export interface ProviderServiceDeps {
   dispatch: (event: DataBusEvent) => void
   credentialStoreByEngine: Record<AIEngineKind, CredentialStore>
-  backgroundCredentialStore: CredentialStore<{ apiKey?: string }>
+  backgroundCredentialStore: CredentialStore<{
+    apiKey?: string
+    claudeApiKey?: string
+    codexApiKey?: string
+  }>
   /** Returns current provider settings (non-sensitive config). */
   getProviderSettings: () => ProviderSettings
   /** Returns a proxy-aware fetch implementation for external provider APIs. */
@@ -116,6 +121,20 @@ async function readErrorBody(response: Response): Promise<string> {
   } catch {
     return ''
   }
+}
+
+function backgroundCredentialKey(engineKind: AIEngineKind): 'claudeApiKey' | 'codexApiKey' {
+  return engineKind === 'codex' ? 'codexApiKey' : 'claudeApiKey'
+}
+
+function normalizeCredentialArgs(
+  engineOrCredential?: AIEngineKind | BackgroundModelCredentialInfo,
+  maybeCredential?: BackgroundModelCredentialInfo,
+): { engineKind?: AIEngineKind; credential: BackgroundModelCredentialInfo } {
+  if (engineOrCredential === 'claude' || engineOrCredential === 'codex') {
+    return { engineKind: engineOrCredential, credential: maybeCredential ?? {} }
+  }
+  return { credential: engineOrCredential ?? {} }
 }
 
 export class ProviderService {
@@ -407,25 +426,38 @@ export class ProviderService {
     })
   }
 
-  async getBackgroundModelCredential(): Promise<BackgroundModelCredentialInfo | null> {
-    const apiKey = await this.deps.backgroundCredentialStore.get('apiKey')
+  async getBackgroundModelCredential(engineKind?: AIEngineKind): Promise<BackgroundModelCredentialInfo | null> {
+    const apiKey = engineKind
+      ? (await this.deps.backgroundCredentialStore.get(backgroundCredentialKey(engineKind)))
+        ?? await this.deps.backgroundCredentialStore.get('apiKey')
+      : await this.deps.backgroundCredentialStore.get('apiKey')
     return apiKey ? { apiKey } : null
   }
 
   async setBackgroundModelCredential(
     credential: BackgroundModelCredentialInfo,
+  ): Promise<BackgroundModelCredentialInfo | null>
+  async setBackgroundModelCredential(
+    engineKind: AIEngineKind,
+    credential: BackgroundModelCredentialInfo,
+  ): Promise<BackgroundModelCredentialInfo | null>
+  async setBackgroundModelCredential(
+    engineOrCredential: AIEngineKind | BackgroundModelCredentialInfo,
+    maybeCredential?: BackgroundModelCredentialInfo,
   ): Promise<BackgroundModelCredentialInfo | null> {
+    const { engineKind, credential } = normalizeCredentialArgs(engineOrCredential, maybeCredential)
+    const key = engineKind ? backgroundCredentialKey(engineKind) : 'apiKey'
     const apiKey = typeof credential.apiKey === 'string' ? credential.apiKey.trim() : ''
     if (!apiKey) {
-      await this.deps.backgroundCredentialStore.remove('apiKey')
+      await this.deps.backgroundCredentialStore.remove(key)
       return null
     }
-    await this.deps.backgroundCredentialStore.update('apiKey', apiKey)
+    await this.deps.backgroundCredentialStore.update(key, apiKey)
     return { apiKey }
   }
 
-  async clearBackgroundModelCredential(): Promise<void> {
-    await this.deps.backgroundCredentialStore.remove('apiKey')
+  async clearBackgroundModelCredential(engineKind?: AIEngineKind): Promise<void> {
+    await this.deps.backgroundCredentialStore.remove(engineKind ? backgroundCredentialKey(engineKind) : 'apiKey')
   }
 
   /**
@@ -491,7 +523,7 @@ export class ProviderService {
 
   async resolveBackgroundHTTPAuth(fallbackEngine: AIEngineKind): Promise<LLMAuthConfig> {
     const settings = this.deps.getProviderSettings()
-    const backgroundModel = settings.backgroundModel ?? { mode: 'inherit' }
+    const backgroundModel = this.getBackgroundModelSettings(settings, fallbackEngine)
 
     if (backgroundModel.mode === 'inherit') {
       return this.resolveHTTPAuth(fallbackEngine)
@@ -518,7 +550,7 @@ export class ProviderService {
       throw new Error('Background model is custom but missing model')
     }
 
-    const credential = await this.getBackgroundModelCredential()
+    const credential = await this.getBackgroundModelCredential(fallbackEngine)
     if (!credential?.apiKey) {
       throw new Error('Background model is custom but missing API key')
     }
@@ -535,6 +567,15 @@ export class ProviderService {
   }
 
   // ── Private ─────────────────────────────────────────────────────────
+
+  private getBackgroundModelSettings(
+    settings: ProviderSettings,
+    engineKind: AIEngineKind,
+  ): BackgroundModelSettings {
+    return settings.byEngine[engineKind]?.backgroundModel
+      ?? settings.backgroundModel
+      ?? { mode: 'inherit' }
+  }
 
   private async fetchProviderModels(auth: {
     engineKind: AIEngineKind

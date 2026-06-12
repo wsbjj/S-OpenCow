@@ -294,7 +294,11 @@ export async function createAppServices(deps: ServiceFactoryDeps): Promise<AppSe
   }
   const codexCredentialStore = new CredentialStore(codexCredentialsPath)
   const backgroundModelCredentialsPath = join(dataPaths.root, 'credentials-background-model.enc')
-  const backgroundModelCredentialStore = new CredentialStore<{ apiKey?: string }>(backgroundModelCredentialsPath)
+  const backgroundModelCredentialStore = new CredentialStore<{
+    apiKey?: string
+    claudeApiKey?: string
+    codexApiKey?: string
+  }>(backgroundModelCredentialsPath)
   const providerService = new ProviderService({
     dispatch: (e) => bus.dispatch(e),
     credentialStoreByEngine: {

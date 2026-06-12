@@ -607,12 +607,15 @@ export interface IPCChannels {
     args: [engineKind: AIEngineKind]
     return: ProviderModelListResult
   }
-  'background-model:get-credential': { args: []; return: BackgroundModelCredentialInfo | null }
-  'background-model:set-credential': {
-    args: [credential: BackgroundModelCredentialInfo]
+  'background-model:get-credential': {
+    args: [engineKind: AIEngineKind]
     return: BackgroundModelCredentialInfo | null
   }
-  'background-model:clear-credential': { args: []; return: boolean }
+  'background-model:set-credential': {
+    args: [engineKind: AIEngineKind, credential: BackgroundModelCredentialInfo]
+    return: BackgroundModelCredentialInfo | null
+  }
+  'background-model:clear-credential': { args: [engineKind: AIEngineKind]; return: boolean }
   // Webhooks
   'webhook:test': { args: [endpoint: WebhookEndpoint]; return: WebhookTestResult }
   // Messaging — unified multi-platform IM API
@@ -3753,6 +3756,8 @@ export interface ProviderEngineSettings {
   modelSelectionsByMode?: Partial<Record<ApiProvider, ProviderModeModelSettings>>
   /** Optional default reasoning effort for Codex model calls. */
   defaultReasoningEffort?: CodexReasoningEffort
+  /** Engine-scoped headless/background task model config. */
+  backgroundModel?: BackgroundModelSettings
 }
 
 export type BackgroundModelMode = 'inherit' | 'inherit-model' | 'custom'
@@ -3761,7 +3766,7 @@ export type BackgroundModelProtocol = 'openai' | 'anthropic'
 
 export type BackgroundModelAuthStyle = 'x-api-key' | 'bearer'
 
-/** Global headless/background task model config. API keys live in CredentialStore. */
+/** Headless/background task model config. API keys live in CredentialStore. */
 export interface BackgroundModelSettings {
   mode: BackgroundModelMode
   protocol?: BackgroundModelProtocol
@@ -3777,6 +3782,7 @@ export interface BackgroundModelCredentialInfo {
 /** Engine-scoped provider configuration. */
 export interface ProviderSettings {
   byEngine: Record<AIEngineKind, ProviderEngineSettings>
+  /** Legacy global fallback for settings written before engine-scoped background models. */
   backgroundModel?: BackgroundModelSettings
 }
 

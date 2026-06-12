@@ -70,10 +70,16 @@ const DEFAULT_SETTINGS: AppSettings = {
     byEngine: {
       claude: {
         activeMode: null,
+        backgroundModel: {
+          mode: 'inherit',
+        },
       },
       codex: {
         activeMode: null,
         defaultReasoningEffort: 'high',
+        backgroundModel: {
+          mode: 'inherit',
+        },
       },
     },
   },
@@ -592,9 +598,13 @@ function normalizeEngineProviderSettings(
   const hasDefaultModel = Object.prototype.hasOwnProperty.call(r, 'defaultModel')
   const hasModelSelectionsByMode = Object.prototype.hasOwnProperty.call(r, 'modelSelectionsByMode')
   const hasDefaultReasoningEffort = Object.prototype.hasOwnProperty.call(r, 'defaultReasoningEffort')
+  const hasBackgroundModel = Object.prototype.hasOwnProperty.call(r, 'backgroundModel')
   const activeMode = normalizeProviderMode(r.activeMode)
   const defaultModel = typeof r.defaultModel === 'string' && r.defaultModel.trim() ? r.defaultModel.trim() : undefined
   const defaultReasoningEffort = normalizeCodexReasoningEffort(r.defaultReasoningEffort)
+  const backgroundModel = normalizeBackgroundModelSettings(
+    hasBackgroundModel ? r.backgroundModel : fallback.backgroundModel,
+  )
   const effectiveActiveMode = hasActiveMode ? activeMode : fallback.activeMode
   const fallbackDefaultModel = fallback.defaultModel?.trim() || undefined
   const baseDefaultModel = hasDefaultModel ? defaultModel : fallbackDefaultModel
@@ -615,6 +625,7 @@ function normalizeEngineProviderSettings(
     ...(hasDefaultReasoningEffort
       ? (defaultReasoningEffort ? { defaultReasoningEffort } : {})
       : (fallback.defaultReasoningEffort ? { defaultReasoningEffort: fallback.defaultReasoningEffort } : {})),
+    backgroundModel,
   }
 }
 
@@ -643,19 +654,20 @@ function migrateProviderSettings(
   }
 
   const byEngineRaw = source.byEngine as Record<string, unknown> | undefined
+  const legacyBackgroundModel = normalizeBackgroundModelSettings(source.backgroundModel)
 
   return {
     byEngine: {
       claude: normalizeEngineProviderSettings(
         byEngineRaw?.claude,
-        legacyClaude,
+        { ...legacyClaude, backgroundModel: legacyBackgroundModel },
       ),
       codex: normalizeEngineProviderSettings(
         byEngineRaw?.codex,
-        { activeMode: null, defaultReasoningEffort: 'high' },
+        { activeMode: null, defaultReasoningEffort: 'high', backgroundModel: legacyBackgroundModel },
       ),
     },
-    backgroundModel: normalizeBackgroundModelSettings(source.backgroundModel),
+    backgroundModel: legacyBackgroundModel,
   }
 }
 

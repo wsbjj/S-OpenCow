@@ -11,6 +11,7 @@ function createProviderServiceForStatusTest(params: {
   adapter: ProviderAdapter
   settingsPatch?: Partial<ProviderSettings>
   backgroundApiKey?: string
+  backgroundApiKeyByEngine?: Partial<Record<AIEngineKind, string>>
 }): ProviderService {
   const settings: ProviderSettings = {
     byEngine: {
@@ -29,7 +30,11 @@ function createProviderServiceForStatusTest(params: {
     dispatch: () => {},
     credentialStoreByEngine: {} as never,
     backgroundCredentialStore: {
-      get: async (key: 'apiKey') => key === 'apiKey' ? params.backgroundApiKey : undefined,
+      get: async (key: string) => {
+        if (key === 'claudeApiKey') return params.backgroundApiKeyByEngine?.claude
+        if (key === 'codexApiKey') return params.backgroundApiKeyByEngine?.codex
+        return key === 'apiKey' ? params.backgroundApiKey : undefined
+      },
       update: async () => {},
       remove: async () => {},
     },
@@ -350,6 +355,62 @@ describe('ProviderService.resolveBackgroundHTTPAuth', () => {
 
     await expect(service.resolveBackgroundHTTPAuth('claude')).rejects.toThrow('Background model is custom but missing API key')
   })
+
+  it('uses the background model configured for the requested engine', async () => {
+    const service = createProviderServiceForStatusTest({
+      engineKind: 'claude',
+      mode: null,
+      adapter: {} as ProviderAdapter,
+      backgroundApiKey: 'legacy-bg-key',
+      backgroundApiKeyByEngine: {
+        claude: 'claude-bg-key',
+        codex: 'codex-bg-key',
+      },
+      settingsPatch: {
+        byEngine: {
+          claude: {
+            activeMode: null,
+            backgroundModel: {
+              mode: 'custom',
+              protocol: 'anthropic',
+              baseUrl: 'https://anthropic-background.example/v1',
+              model: 'claude-background-mini',
+            },
+          },
+          codex: {
+            activeMode: null,
+            backgroundModel: {
+              mode: 'custom',
+              protocol: 'openai',
+              baseUrl: 'https://openai-background.example/v1',
+              model: 'gpt-background-mini',
+            },
+          },
+        },
+        backgroundModel: {
+          mode: 'custom',
+          protocol: 'openai',
+          baseUrl: 'https://legacy-background.example/v1',
+          model: 'legacy-background-model',
+        },
+      },
+    })
+
+    await expect(service.resolveBackgroundHTTPAuth('claude')).resolves.toEqual({
+      protocol: 'anthropic',
+      apiKey: 'claude-bg-key',
+      baseUrl: 'https://anthropic-background.example/v1',
+      authStyle: 'x-api-key',
+      model: 'claude-background-mini',
+    })
+    await expect(service.resolveBackgroundHTTPAuth('codex')).resolves.toEqual({
+      protocol: 'openai',
+      apiKey: 'codex-bg-key',
+      baseUrl: 'https://openai-background.example/v1',
+      authStyle: 'bearer',
+      model: 'gpt-background-mini',
+    })
+  })
 })
 
 describe('ProviderService background model credentials', () => {
@@ -385,5 +446,44 @@ describe('ProviderService background model credentials', () => {
     await expect(service.getBackgroundModelCredential()).resolves.toEqual({ apiKey: 'bg-key' })
     await expect(service.clearBackgroundModelCredential()).resolves.toBeUndefined()
     await expect(service.getBackgroundModelCredential()).resolves.toBeNull()
+  })
+
+  it('stores engine-scoped background model API keys independently', async () => {
+    const state: Record<string, string | undefined> = {}
+    const service = Object.create(ProviderService.prototype) as ProviderService & {
+      deps: unknown
+      providersByEngine: unknown
+    }
+    service.deps = {
+      dispatch: () => {},
+      credentialStoreByEngine: {} as never,
+      backgroundCredentialStore: {
+        get: async (key: string) => state[key],
+        update: async (key: string, value: string) => {
+          state[key] = value
+        },
+        remove: async (key: string) => {
+          delete state[key]
+        },
+      },
+      getProviderSettings: () => ({
+        byEngine: {
+          claude: { activeMode: null },
+          codex: { activeMode: null },
+        },
+        backgroundModel: { mode: 'inherit' },
+      }),
+    }
+    service.providersByEngine = new Map()
+
+    await expect(service.setBackgroundModelCredential('claude', { apiKey: '  claude-bg-key  ' })).resolves.toEqual({ apiKey: 'claude-bg-key' })
+    await expect(service.setBackgroundModelCredential('codex', { apiKey: '  codex-bg-key  ' })).resolves.toEqual({ apiKey: 'codex-bg-key' })
+
+    await expect(service.getBackgroundModelCredential('claude')).resolves.toEqual({ apiKey: 'claude-bg-key' })
+    await expect(service.getBackgroundModelCredential('codex')).resolves.toEqual({ apiKey: 'codex-bg-key' })
+
+    await expect(service.clearBackgroundModelCredential('claude')).resolves.toBeUndefined()
+    await expect(service.getBackgroundModelCredential('claude')).resolves.toBeNull()
+    await expect(service.getBackgroundModelCredential('codex')).resolves.toEqual({ apiKey: 'codex-bg-key' })
   })
 })

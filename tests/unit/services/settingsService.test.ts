@@ -34,6 +34,8 @@ describe('SettingsService', () => {
     expect(settings.eventSubscriptions.onComplete).toBe(true)
     expect(settings.eventSubscriptions.onStatusChange).toBe(true)
     expect(settings.provider.backgroundModel).toEqual({ mode: 'inherit' })
+    expect(settings.provider.byEngine.claude.backgroundModel).toEqual({ mode: 'inherit' })
+    expect(settings.provider.byEngine.codex.backgroundModel).toEqual({ mode: 'inherit' })
     expect(settings.provider.byEngine.codex.defaultReasoningEffort).toBe('high')
   })
 
@@ -304,6 +306,63 @@ describe('SettingsService', () => {
       baseUrl: 'https://gateway.example/v1',
       model: 'claude-3-5-haiku-latest',
       authStyle: 'bearer',
+    })
+    expect(settings.provider.byEngine.claude.backgroundModel).toEqual({
+      mode: 'custom',
+      protocol: 'anthropic',
+      baseUrl: 'https://gateway.example/v1',
+      model: 'claude-3-5-haiku-latest',
+      authStyle: 'bearer',
+    })
+    expect(settings.provider.byEngine.codex.backgroundModel).toEqual({
+      mode: 'custom',
+      protocol: 'anthropic',
+      baseUrl: 'https://gateway.example/v1',
+      model: 'claude-3-5-haiku-latest',
+      authStyle: 'bearer',
+    })
+  })
+
+  it('keeps engine-scoped background model settings isolated', async () => {
+    await writeFile(
+      join(tempDir, 'settings.json'),
+      JSON.stringify({
+        provider: {
+          byEngine: {
+            claude: {
+              activeMode: 'api_key',
+              backgroundModel: {
+                mode: 'inherit-model',
+                model: ' claude-background ',
+              },
+            },
+            codex: {
+              activeMode: 'custom',
+              defaultReasoningEffort: 'medium',
+              backgroundModel: {
+                mode: 'custom',
+                protocol: 'openai',
+                baseUrl: ' https://openai-gateway.example/v1 ',
+                model: ' gpt-background-mini ',
+              },
+            },
+          },
+        },
+      }),
+      'utf-8'
+    )
+    const fresh = new SettingsService(join(tempDir, 'settings.json'))
+    const settings = await fresh.load()
+
+    expect(settings.provider.byEngine.claude.backgroundModel).toEqual({
+      mode: 'inherit-model',
+      model: 'claude-background',
+    })
+    expect(settings.provider.byEngine.codex.backgroundModel).toEqual({
+      mode: 'custom',
+      protocol: 'openai',
+      baseUrl: 'https://openai-gateway.example/v1',
+      model: 'gpt-background-mini',
     })
   })
 
