@@ -7,6 +7,7 @@ import {
   type ApiProvider,
   type CodexReasoningEffort,
   type CommandDefaults,
+  type CompactContinuationContext,
   type ContentBlock,
   type DataBusEvent,
   type DocumentMediaType,
@@ -62,6 +63,14 @@ import { planSessionPolicy } from './policy/sessionPolicyPlanner'
 import { decideSessionReconfiguration } from './policy/sessionReconfigurationCoordinator'
 import { buildConversationSummary } from './conversationSummary'
 import { dispatchSessionTerminal as dispatchSessionTerminalEvent } from './sessionTerminalDispatcher'
+import type { HeadlessLLMClient } from '../llm/types'
+import {
+  buildCompactContinuationContext,
+  formatContinuationAsSystemPrompt,
+  groupMessagesIntoTurns,
+  assembleContinuationLayers,
+} from './conversationContinuationSummary'
+import { resolveContextDisplayState } from '../../src/shared/contextDisplay'
 
 const log = createLogger('Orchestrator')
 
@@ -114,6 +123,12 @@ export interface OrchestratorDeps {
   getMemoryContext?: (projectId: string | null) => Promise<{ formatted: string; memories: Array<{ id: string }> } | null>
   /** Optional project resolver used by SessionWorkspaceResolver. */
   resolveProjectById?: ((projectId: string) => Promise<{ id: string; canonicalPath: string } | null>) | null
+  /**
+   * Factory for creating a HeadlessLLMClient for Layer 3 summarization.
+   * Engine-scoped: uses the session's current auth credentials.
+   * When undefined, compactSession() returns false with a warning.
+   */
+  createCompactionLLMClient?: (engineKind: AIEngineKind) => Promise<HeadlessLLMClient | null>
 }
 
 // Re-export for downstream consumers (e.g. marketplace service)
@@ -1204,6 +1219,134 @@ export class SessionOrchestrator {
       lifecycleStopped,
     })
     return false
+  }
+
+  /**
+   * Perform a three-layer context compaction for the given session.
+   *
+   * Replaces the live conversation history with a compact continuation context
+   * (Layer 1 verbatim recent turns + Layer 2 user prompts/bot briefs + Layer 3
+   * LLM summary) injected as the session's contextSystemPrompt. The next
+   * lifecycle starts a fresh thread (no resume) seeded with this context.
+   *
+   * Returns true on success, false when compaction could not be performed
+   * (missing LLM factory, no messages, or over-budget continuation). On
+   * auto-trigger failure the caller should continue without blocking the user.
+   */
+  async compactSession(sessionId: string, trigger: 'manual' | 'auto' = 'manual'): Promise<boolean> {
+    // 1. Resolve the session — running runtime takes precedence over store.
+    const rt = this.runtimes.get(sessionId)
+    let session: ManagedSession | null = rt?.session ?? null
+    if (!session) {
+      const persisted = await this.store.get(sessionId)
+      if (!persisted) {
+        log.warn('compactSession ignored: session not found', { sessionId })
+        return false
+      }
+      session = ManagedSession.fromInfo(persisted)
+    }
+
+    const messages = session.getMessages()
+    if (messages.length === 0) {
+      log.warn('compactSession skipped: session has no messages', { sessionId, trigger })
+      return false
+    }
+
+    // 2. Resolve pre-compaction token usage and the model context limit.
+    const snapshot = session.snapshot()
+    const { usedTokens: preTokens, limitTokens } = resolveContextDisplayState(snapshot)
+
+    // 3. Surface a 'compacting' boundary so the UI can show a loading state
+    //    while the Layer 3 LLM summary is being generated.
+    session.addSystemEvent({
+      type: 'compact_boundary',
+      trigger,
+      preTokens,
+      phase: 'compacting',
+    })
+    this.dispatchLastSystemEvent(session)
+    this.dispatchSessionUpdate(session)
+
+    // 4. The LLM client factory is an optional dependency. Without it we cannot
+    //    build the Layer 3 summary, so abort gracefully (no throw).
+    if (!this.deps.createCompactionLLMClient) {
+      log.warn('compactSession aborted: createCompactionLLMClient dependency not configured', { sessionId })
+      this.dispatchSessionUpdate(session)
+      return false
+    }
+
+    let llmClient: HeadlessLLMClient | null
+    try {
+      llmClient = await this.deps.createCompactionLLMClient(session.getEngineKind())
+    } catch (err) {
+      log.error('compactSession failed to create LLM client', { sessionId, err })
+      this.dispatchSessionUpdate(session)
+      return false
+    }
+    if (!llmClient) {
+      log.warn('compactSession aborted: LLM client factory returned null', { sessionId })
+      this.dispatchSessionUpdate(session)
+      return false
+    }
+
+    // 5. Build the three-layer continuation context (one LLM call + fallback).
+    let ctx: CompactContinuationContext
+    try {
+      ctx = await buildCompactContinuationContext({ messages, llmClient })
+    } catch (err) {
+      log.error('compactSession failed to build continuation context', { sessionId, err })
+      this.dispatchSessionUpdate(session)
+      return false
+    }
+
+    // 6. Serialize the continuation into a system prompt block. Layer 1 recent
+    //    turns are embedded in the prompt because the next lifecycle starts a
+    //    fresh thread (engineRef is cleared) and cannot replay raw messages.
+    const layers = assembleContinuationLayers(groupMessagesIntoTurns(messages))
+    const continuationSystemPrompt = formatContinuationAsSystemPrompt(ctx, layers.layer1TurnMessages)
+
+    // 7. Over-budget guard: a continuation that already consumes a large share
+    //    of the context window defeats the purpose of compacting. Estimate
+    //    tokens from prompt length (~4 chars/token) and abort if it exceeds 60%.
+    const estimatedContinuationTokens = Math.ceil(continuationSystemPrompt.length / 4)
+    if (limitTokens > 0 && estimatedContinuationTokens > limitTokens * 0.6) {
+      log.warn('compactSession aborted: continuation context exceeds 60% of context limit', {
+        sessionId,
+        estimatedContinuationTokens,
+        limitTokens,
+      })
+      this.dispatchSessionUpdate(session)
+      return false
+    }
+
+    // 8. Apply the continuation. This clears engine state, marks pendingCompact,
+    //    replaces contextSystemPrompt, and inserts a 'done' compact_boundary.
+    session.applyCompactContinuation({
+      ctx,
+      continuationSystemPrompt,
+      preTokens,
+      trigger,
+    })
+
+    // 9. Persist and broadcast the post-compaction state.
+    try {
+      await this.store.save(session.toPersistenceRecord())
+    } catch (err) {
+      log.error('compactSession failed to persist post-compaction state', { sessionId, err })
+    }
+    this.dispatchLastSystemEvent(session)
+    this.dispatchSessionUpdate(session)
+
+    log.info('compactSession completed', {
+      sessionId,
+      trigger,
+      preTokens,
+      layer1TurnCount: ctx.layer1TurnCount,
+      layer3IsLLM: ctx.layer3IsLLM,
+      totalTurnsCompacted: ctx.totalTurnsCompacted,
+      estimatedContinuationTokens,
+    })
+    return true
   }
 
   async resumeSession(sessionId: string, message: UserMessageContent): Promise<boolean> {
