@@ -1060,6 +1060,9 @@ export function registerIPCHandlers(deps: IPCDeps): void {
     registerHandler('command:resume-session', (sessionId, content) =>
       orchestrator.resumeSession(sessionId, content ?? '')
     )
+    registerHandler('command:compact-session', async (sessionId: string) => {
+      return orchestrator.compactSession(sessionId, 'manual')
+    })
     registerHandler('command:list-managed-sessions', () => orchestrator.listSessions())
     registerHandler('command:get-managed-session', (sessionId) =>
       orchestrator.getSession(sessionId)
