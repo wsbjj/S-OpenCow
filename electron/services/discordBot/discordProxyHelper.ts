@@ -106,7 +106,12 @@ function buildSocksUndiciDispatcher(host: string, port: number, type: 4 | 5): Di
 //   3. Calls the oncreate callback with the TLS socket
 
 /** Callback-style createConnection compatible with Node.js http module. */
-type CreateConnectionFn = (options: Record<string, any>, oncreate: (err: Error | null, socket?: net.Socket) => void) => void
+interface NodeConnectOptions {
+  host?: string
+  hostname?: string
+  port?: number | string
+}
+type CreateConnectionFn = (options: NodeConnectOptions, oncreate: (err: Error | null, socket?: net.Socket) => void) => void
 
 /**
  * Build a `createConnection` function that tunnels through an HTTP proxy

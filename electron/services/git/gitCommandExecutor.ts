@@ -18,11 +18,9 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { access } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { createLogger } from '../../platform/logger'
 import type { GitLineDiff } from '@shared/gitTypes'
 
 const execFileAsync = promisify(execFile)
-const log = createLogger('GitCLI')
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */

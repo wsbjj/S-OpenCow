@@ -30,7 +30,6 @@ import type {
   ManagedSessionMessage,
   SessionSnapshot,
   IMConnectionStatusType,
-  DataBusEvent,
 } from '../../../src/shared/types'
 import type { DiscordBotServiceDeps, DiscordBotStatus } from './types'
 import {

@@ -11,10 +11,8 @@
 
 import { buildFrontmatter } from '@shared/frontmatter'
 import type {
-  SkillFormData,
   AgentFormData,
   CommandFormData,
-  RuleFormData,
   HookFormData,
   HookRuleFormData,
   MCPServerFormData,

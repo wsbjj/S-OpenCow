@@ -556,10 +556,9 @@ export class ManagedSession {
    * - Injects the continuation system prompt into contextSystemPrompt.
    * - Inserts a compact_boundary marker into the message timeline.
    *
-   * Note: the compact_boundary is added by the caller (compactSession) in
-   * 'compacting' phase before this method is called, and updated to 'done'
-   * afterwards via updateSystemEventById. This method no longer inserts a
-   * second boundary.
+   * If the caller has already inserted a 'compacting' boundary (for UI loading
+   * state), that boundary is updated in-place to 'done'.  Otherwise a new
+   * 'done' boundary is appended (supports isolated unit-test callers).
    */
   applyCompactContinuation(params: {
     ctx: CompactContinuationContext
@@ -586,6 +585,26 @@ export class ManagedSession {
     // 5. Stash estimated size so ContextWindowRing shows a non-zero value
     //    before the first API response restores contextState.
     this.postCompactTokens = Math.ceil(continuationSystemPrompt.length / 4)
+
+    // 6. Update existing 'compacting' boundary to 'done', or insert a new 'done'
+    //    boundary if none exists (e.g. isolated callers that skip the loading state).
+    let compactingMsgId: string | undefined
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const m = this.messages[i]
+      if (m.role === 'system' && m.event.type === 'compact_boundary' && m.event.phase === 'compacting') {
+        compactingMsgId = m.id
+        break
+      }
+    }
+    if (compactingMsgId !== undefined) {
+      this.updateSystemEventById(compactingMsgId, (event) => {
+        if (event.type === 'compact_boundary') {
+          event.phase = 'done'
+        }
+      })
+    } else {
+      this.addSystemEvent({ type: 'compact_boundary', trigger, preTokens, phase: 'done' })
+    }
 
     this.lastActivity = Date.now()
   }

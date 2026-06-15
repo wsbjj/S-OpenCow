@@ -70,8 +70,8 @@ export function ContextWindowRing({
 
   const center = size / 2
 
-  // Don't render when no limit data is available yet
-  if (contextLimit <= 0) return null
+  // Don't render when no limit data is available yet or no tokens have been used
+  if (contextUsed <= 0 || contextLimit <= 0) return null
 
   return (
     <span
