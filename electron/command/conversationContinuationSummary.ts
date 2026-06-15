@@ -19,6 +19,8 @@ const BOT_BRIEF_LIMIT = 150
 const LAYER_3_SUMMARY_MAX_TOKENS = 600
 const LAYER_3_FALLBACK_MAX_CHARS = 2000
 const LLM_TIMEOUT_MS = 30_000
+const TOOL_INPUT_MAX_CHARS = 300
+const TOOL_RESULT_MAX_CHARS = 200
 
 // ─── Internal types ─────────────────────────────────────────────────────────
 
@@ -40,11 +42,26 @@ export interface AssembledLayers {
 // ─── Pure helpers ─────────────────────────────────────────────────────────
 
 function extractText(blocks: readonly ContentBlock[]): string {
-  return blocks
-    .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-    .trim()
+  const parts: string[] = []
+  for (const b of blocks) {
+    if (b.type === 'text') {
+      parts.push(b.text)
+    } else if (b.type === 'tool_use') {
+      const inputStr = JSON.stringify(b.input)
+      const inputBrief =
+        inputStr.length > TOOL_INPUT_MAX_CHARS
+          ? inputStr.slice(0, TOOL_INPUT_MAX_CHARS) + '…'
+          : inputStr
+      parts.push(`[tool:${b.name}] ${inputBrief}`)
+    } else if (b.type === 'tool_result') {
+      const resultBrief =
+        b.content.length > TOOL_RESULT_MAX_CHARS
+          ? b.content.slice(0, TOOL_RESULT_MAX_CHARS) + '…'
+          : b.content
+      parts.push(`[result] ${resultBrief}`)
+    }
+  }
+  return parts.join('\n').trim()
 }
 
 function brief(text: string): string {
