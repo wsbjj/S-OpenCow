@@ -17,7 +17,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { ToolProgressRelay } from '../../../utils/toolProgressRelay'
-import { createLogger } from '../../../platform/logger'
 import type { NativeCapabilityToolContext, NativeToolDescriptor } from '../../../nativeCapabilities/types'
 import { RepoAnalyzerCapability } from './repoAnalyzerCapability'
 import { ManifestValidator } from './manifestValidator'
@@ -25,8 +24,6 @@ import { ManifestCache } from './manifestCache'
 import { REPO_ANALYZER_SYSTEM_PROMPT, buildAnalysisUserMessage } from './systemPrompt'
 import type { RepoAnalysisParams } from './types'
 import type { ValidatedManifest } from './types'
-
-const log = createLogger('RepoAnalyzer')
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 

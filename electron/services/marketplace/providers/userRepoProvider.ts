@@ -20,7 +20,6 @@ import type {
   MarketSkillDetail,
   MarketSkillSummary,
   MarketInstallPreview,
-  RepoSourcePlatform,
 } from '../../../../src/shared/types'
 import type { MarketplaceSearchResponse, MarketplaceSettings } from '../types'
 import type { GitPlatform, GitPlatformConfig } from '../platforms/types'

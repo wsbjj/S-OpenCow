@@ -16,7 +16,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import * as tar from 'tar'
 
-import type { GitPlatform, GitPlatformConfig, RepoMeta, RepoTreeEntry } from './types'
+import type { GitPlatform, GitPlatformConfig, RepoMeta } from './types'
 import type { MarketInstallPreview, ManagedCapabilityCategory } from '../../../../src/shared/types'
 import { DIR_TO_CAPABILITY_CATEGORY, CAPABILITY_SKIP_DIRS } from '../../../../src/shared/types'
 import { fetchWithTimeout } from '../utils/http'

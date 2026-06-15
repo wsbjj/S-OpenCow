@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type Kysely, sql } from 'kysely'
+import { type Kysely, sql, type Updateable } from 'kysely'
 import type { Database, IssueChangeQueueTable } from '../../database/types'
 import type { ChangeQueueEntry, ChangeQueueOperation, ChangeQueueStatus } from '../../../src/shared/types'
 
@@ -154,7 +154,7 @@ export class ChangeQueueStore {
           : sql`CASE WHEN retry_count + 1 >= max_retries THEN 'failed' ELSE 'pending' END`,
         error_message: errorMessage,
         processed_at: Date.now(),
-      } as any)
+      } as unknown as Updateable<IssueChangeQueueTable>)
       .where('id', '=', id)
       .execute()
   }

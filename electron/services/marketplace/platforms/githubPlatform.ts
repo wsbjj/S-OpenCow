@@ -13,7 +13,7 @@
  *   - fetchWithTimeout()       → utils/http.ts
  */
 
-import type { GitPlatform, GitPlatformConfig, RepoMeta, RepoTreeEntry } from './types'
+import type { GitPlatform, GitPlatformConfig, RepoMeta } from './types'
 import type { MarketInstallPreview } from '../../../../src/shared/types'
 import { githubHeaders } from '../utils/github'
 import {

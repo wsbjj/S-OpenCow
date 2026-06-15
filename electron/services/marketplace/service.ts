@@ -51,7 +51,7 @@ import type { PackageManifest } from '../capabilityCenter/packageStore'
 import { createLogger } from '../../platform/logger'
 import type { RepoAnalyzer, RepoAnalyzerCapability } from './agentAnalyzer'
 import { RepoStructurer } from './agentAnalyzer'
-import type { ValidatedManifest, AnalysisProgress } from './agentAnalyzer'
+import type { ValidatedManifest } from './agentAnalyzer'
 import type { SessionOrchestrator, SessionStartOptions, SessionCompletionResult } from '../../command/sessionOrchestrator'
 
 const log = createLogger('Marketplace')
@@ -1264,7 +1264,7 @@ function generateSkillMd(name: string, description: string, author?: string): st
  * unified catch block of analyzeViaAgent() instead of duplicating
  * the check in per-phase catch blocks.
  */
-function isCancellationError(signal: AbortSignal, err: unknown): boolean {
+function _isCancellationError(signal: AbortSignal, err: unknown): boolean {
   if (signal.aborted) return true
   return err instanceof Error && err.message === 'Analysis cancelled'
 }
@@ -1284,7 +1284,7 @@ type AnalysisErrorKind = 'timeout' | 'network' | 'auth' | 'sdk-error' | 'unknown
  *
  * Cancellation is handled separately (checked before this is called).
  */
-function classifyAnalysisError(err: unknown): AnalysisErrorKind {
+function _classifyAnalysisError(err: unknown): AnalysisErrorKind {
   const msg = err instanceof Error ? err.message : String(err)
   if (/timed?\s*out/i.test(msg)) return 'timeout'
   if (/fetch|network|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|socket/i.test(msg)) return 'network'
