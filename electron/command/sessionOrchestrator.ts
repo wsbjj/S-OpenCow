@@ -1515,7 +1515,7 @@ export class SessionOrchestrator {
       || (!this.hasSessionModelSelection(session) && this.detectAndApplyEngineDrift(session))
 
     const engineSessionRef = session.getEngineRef()
-    if (!engineSessionRef && !forceRestart && !engineSwitched) {
+    if (!engineSessionRef && !forceRestart && !engineSwitched && !session.isPendingCompact()) {
       log.warn('resumeSession failed: missing engine session ref', { sessionId })
       return false
     }
