@@ -447,14 +447,30 @@ export async function createAppServices(deps: ServiceFactoryDeps): Promise<AppSe
       }
     },
     createCompactionLLMClient: async (engineKind) => {
-      try {
-        const auth = await providerService.resolveBackgroundHTTPAuth(engineKind)
-        return new HeadlessLLMClientImpl({
+      const buildClient = (auth: import('../llm/types').LLMAuthConfig) =>
+        new HeadlessLLMClientImpl({
           resolveAuth: () => Promise.resolve(auth),
           getFetch: () => proxyFetchFactory.getStandardFetch(),
         })
-      } catch (err) {
-        log.warn('createCompactionLLMClient: failed to resolve background auth, compaction unavailable', { engineKind, err })
+
+      try {
+        const auth = await providerService.resolveBackgroundHTTPAuth(engineKind)
+        return buildClient(auth)
+      } catch (primaryErr) {
+        // Codex sessions require an OpenAI key for their engine auth, but the
+        // compaction summariser only needs a text-generation model.  Fall back
+        // to Claude (Anthropic) auth so users who run Codex sessions with their
+        // Anthropic subscription can still compact without a separate OpenAI key.
+        if (engineKind !== 'claude') {
+          try {
+            log.info('createCompactionLLMClient: primary engine auth failed, falling back to claude auth', { engineKind })
+            const claudeAuth = await providerService.resolveBackgroundHTTPAuth('claude')
+            return buildClient(claudeAuth)
+          } catch (fallbackErr) {
+            log.warn('createCompactionLLMClient: claude fallback auth also failed', { engineKind, fallbackErr })
+          }
+        }
+        log.warn('createCompactionLLMClient: failed to resolve background auth, compaction unavailable', { engineKind, err: primaryErr })
         return null
       }
     },

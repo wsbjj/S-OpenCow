@@ -1073,7 +1073,21 @@ export class SessionOrchestrator {
   }
 
   async sendMessage(sessionId: string, content: UserMessageContent): Promise<boolean> {
-    // ── /compact intercept (must be FIRST — before drift checks and lifecycle push) ──
+    // ── Apply pending engine / model selection before /compact ──────────────────────
+    // Engine drift detection normally runs after the /compact intercept, which means
+    // compactSession() would see the OLD engine kind and resolve wrong credentials
+    // (e.g. Codex auth when the user has just switched to Claude).  Eagerly applying
+    // the selection here is safe because:
+    //  • It only mutates session.engineKind in-place — no lifecycle restart yet.
+    //  • compactSession() will then use the correct engine for auth resolution.
+    //  • The lifecycle restart (if still needed) happens on the next user message.
+    //  • The later detectAndApplySessionModelSelection call becomes a no-op.
+    const rtEarly = this.runtimes.get(sessionId)
+    if (rtEarly) {
+      this.detectAndApplySessionModelSelection(rtEarly)
+    }
+
+    // ── /compact intercept ──────────────────────────────────────────────────────────
     if (isCompactCommand(content)) {
       log.info('sendMessage: /compact command intercepted', { sessionId })
       return await this.compactSession(sessionId, 'manual')
@@ -1381,12 +1395,18 @@ export class SessionOrchestrator {
     }
 
     // 8. Apply the continuation. This clears engine state, marks pendingCompact,
-    //    replaces contextSystemPrompt, and inserts a 'done' compact_boundary.
+    //    and replaces contextSystemPrompt. The compacting boundary is updated to
+    //    'done' in-place so the UI stops spinning.
     session.applyCompactContinuation({
       ctx,
       continuationSystemPrompt,
       preTokens,
       trigger,
+    })
+    session.updateSystemEventById(compactingBoundaryId, (event) => {
+      if (event.type === 'compact_boundary') {
+        event.phase = 'done'
+      }
     })
 
     // 9. Persist and broadcast the post-compaction state.

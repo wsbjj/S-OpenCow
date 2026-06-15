@@ -284,6 +284,12 @@ export class HeadlessLLMClientImpl implements HeadlessLLMClient {
 
     if (!url.includes('/responses')) return false
     if (statusCode === 405 || statusCode === 501) return true
+
+    // HTTP 200 but SDK schema validation failed — third-party OpenAI-compatible proxies
+    // may return a Responses API structure that passes JSON.parse but fails the SDK's
+    // internal zod schema, causing AI_APICallError with "Invalid JSON response" on a 200.
+    if (message === 'Invalid JSON response') return true
+
     if (statusCode !== 400) return false
 
     return (

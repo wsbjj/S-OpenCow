@@ -79,6 +79,7 @@ const invokeChannels: (keyof IPCChannels)[] = [
   'command:answer-question',
   'command:stop-session',
   'command:resume-session',
+  'command:compact-session',
   'command:list-managed-sessions',
   'command:get-managed-session',
   'command:get-session-message-page',

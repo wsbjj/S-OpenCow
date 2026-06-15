@@ -551,6 +551,11 @@ export class ManagedSession {
    * - Marks the session as pendingCompact for resumeSessionInternal() detection.
    * - Injects the continuation system prompt into contextSystemPrompt.
    * - Inserts a compact_boundary marker into the message timeline.
+   *
+   * Note: the compact_boundary is added by the caller (compactSession) in
+   * 'compacting' phase before this method is called, and updated to 'done'
+   * afterwards via updateSystemEventById. This method no longer inserts a
+   * second boundary.
    */
   applyCompactContinuation(params: {
     ctx: CompactContinuationContext
@@ -573,14 +578,6 @@ export class ManagedSession {
 
     // 4. Replace contextSystemPrompt with continuation
     this.config = { ...this.config, contextSystemPrompt: continuationSystemPrompt }
-
-    // 5. Insert compact boundary marker
-    this.addSystemEvent({
-      type: 'compact_boundary',
-      trigger,
-      preTokens,
-      phase: 'done',
-    })
 
     this.lastActivity = Date.now()
   }
