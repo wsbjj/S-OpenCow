@@ -47,6 +47,7 @@ import type {
   SetSessionModelInput,
   UserMessageContent,
   NoteContent,
+  CodexReasoningEffort,
 } from '@shared/types'
 
 // Stable empty-array constant for narrow selector defaults.
@@ -190,6 +191,7 @@ export const SessionPanel = React.memo(function SessionPanel({
   const issueId = binding.kind === 'issue' ? binding.issueId : undefined
   const settings = useSettingsStore((s) => s.settings)
   const setSessionModel = useCommandStore((s) => s.setSessionModel)
+  const setSessionReasoningEffort = useCommandStore((s) => s.setSessionReasoningEffort)
 
   // ---------------------------------------------------------------------------
   // ALL hooks must be declared before any early return to satisfy Rules of Hooks.
@@ -535,6 +537,26 @@ export const SessionPanel = React.memo(function SessionPanel({
     }
   }, [handleSessionModelChange, history?.isViewingArchived, isReadOnly, modelOptions, session, sessionModelSelectionValue])
 
+  const globalReasoningDefault: CodexReasoningEffort =
+    (settings?.provider?.byEngine?.codex?.defaultReasoningEffort) ?? 'medium'
+  const handleReasoningEffortChange = useCallback(
+    (effort: CodexReasoningEffort | null) => {
+      if (!session?.id) return
+      void setSessionReasoningEffort(session.id, effort)
+    },
+    [session?.id, setSessionReasoningEffort],
+  )
+  const effectiveEngineKind = session?.desiredEngineKind ?? session?.engineKind
+  const reasoningEffortSelection = useMemo(() => {
+    if (!session || effectiveEngineKind !== 'codex') return undefined
+    return {
+      value: session.modelReasoningEffort ?? null,
+      globalDefault: globalReasoningDefault,
+      onChange: handleReasoningEffortChange,
+      disabled: isReadOnly || !!history?.isViewingArchived,
+    }
+  }, [session, effectiveEngineKind, globalReasoningDefault, handleReasoningEffortChange, isReadOnly, history?.isViewingArchived])
+
   // ---------------------------------------------------------------------------
   // Early returns — safe now that all hooks have been called above.
   // ---------------------------------------------------------------------------
@@ -772,6 +794,8 @@ export const SessionPanel = React.memo(function SessionPanel({
                       cacheKey={inputCacheKey}
                       sessionControl={sessionControlProps}
                       modelSelection={inputModelSelection}
+                      reasoningEffortSelection={reasoningEffortSelection}
+                      sessionId={sessionId || undefined}
                     />
                   )}
                 </div>

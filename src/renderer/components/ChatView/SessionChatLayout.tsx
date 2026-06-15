@@ -26,7 +26,7 @@ import { ChatHeroInput } from './ChatHeroInput'
 import type { ChatHeroInputHandle } from './ChatHeroInput'
 import { cn } from '@/lib/utils'
 import { managedSessionDraftKey } from '@/lib/messageDraftKeys'
-import type { SessionSnapshot, UserMessageContent } from '@shared/types'
+import type { SessionSnapshot, UserMessageContent, CodexReasoningEffort } from '@shared/types'
 import type { UseMessageQueueReturn } from '@/hooks/useMessageQueue'
 import type { ModelSwitcherProps } from '@/components/ui/ModelSwitcher'
 import { useCommandStore, selectLatestOpenTodos } from '@/stores/commandStore'
@@ -57,6 +57,13 @@ export interface SessionChatLayoutProps {
   controlsClassName?: string
   /** Optional model switcher state for the input action row. */
   modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
+  /** Optional reasoning effort switcher state for Codex sessions. */
+  reasoningEffortSelection?: {
+    value: CodexReasoningEffort | null
+    globalDefault: CodexReasoningEffort
+    onChange: (effort: CodexReasoningEffort | null) => void
+    disabled?: boolean
+  }
   /** Stable cache key for preserving the bottom input draft across layout switches. */
   inputCacheKey?: string
   /**
@@ -89,6 +96,7 @@ export function SessionChatLayout({
   pausedPlaceholder,
   controlsClassName,
   modelSelection,
+  reasoningEffortSelection,
   inputCacheKey,
   footerNode,
   hideContentViewer,
@@ -173,7 +181,9 @@ export function SessionChatLayout({
               cacheKey={inputCacheKey ?? managedSessionDraftKey(session.id)}
               sessionControl={{ isProcessing, onStop }}
               modelSelection={modelSelection}
+              reasoningEffortSelection={reasoningEffortSelection}
               registerAsChatTabInput={registerAsChatTabInput}
+              sessionId={session.id}
             />
           </div>
         </div>

@@ -12,11 +12,17 @@ import { AttachmentPreviewList } from '@/components/ui/AttachmentPreviewList'
 import { StopButtonPopover } from '@/components/ui/StopButtonPopover'
 import type { SessionControlProps } from '@/components/ui/StopButtonPopover'
 import { ModelSwitcher, type ModelSwitcherProps } from '@/components/ui/ModelSwitcher'
+import { ReasoningEffortSwitcher } from '@/components/ui/ReasoningEffortSwitcher'
+import { ContextWindowRing } from '@/components/ui/ContextWindowRing'
 import { FILE_INPUT_ACCEPT } from '@/lib/attachmentUtils'
 import { registerChatInputFocus, unregisterChatInputFocus } from '@/lib/chatInputRegistry'
 import { cn } from '@/lib/utils'
-import type { AIEngineKind, UserMessageContent } from '@shared/types'
+import type { AIEngineKind, UserMessageContent, CodexReasoningEffort } from '@shared/types'
 import { ATTACHMENT_LIMITS } from '@shared/types'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
+import { shallow } from 'zustand/shallow'
+import { useCommandStore } from '@/stores/commandStore'
+import { resolveContextDisplayState } from '@shared/contextDisplay'
 
 interface ChatHeroInputProps {
   onSend: (message: UserMessageContent) => Promise<boolean>
@@ -27,10 +33,19 @@ interface ChatHeroInputProps {
   sessionControl?: SessionControlProps
   /** Optional session/new-chat model switcher state. */
   modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
+  /** Optional reasoning effort switcher (Codex sessions only). */
+  reasoningEffortSelection?: {
+    value: CodexReasoningEffort | null
+    globalDefault: CodexReasoningEffort
+    onChange: (effort: CodexReasoningEffort | null) => void
+    disabled?: boolean
+  }
   /** Cache key for preserving draft content across input remounts. */
   cacheKey?: string
   /** Registers this instance as the Chat tab's active focus target. */
   registerAsChatTabInput?: boolean
+  /** Session ID for reading live context window state. */
+  sessionId?: string
 }
 
 export interface ChatHeroInputHandle {
@@ -58,8 +73,10 @@ export const ChatHeroInput = forwardRef<ChatHeroInputHandle, ChatHeroInputProps>
   engineKind,
   sessionControl,
   modelSelection,
+  reasoningEffortSelection,
   cacheKey,
   registerAsChatTabInput = false,
+  sessionId,
 }: ChatHeroInputProps, ref): React.JSX.Element {
   const { t } = useTranslation('sessions')
   const { t: tCommon } = useTranslation('common')
@@ -87,6 +104,7 @@ export const ChatHeroInput = forwardRef<ChatHeroInputHandle, ChatHeroInputProps>
     onSubmit: onSend,
     engineKind,
     cacheKey,
+    sessionId,
   })
 
   useImperativeHandle(ref, () => ({
@@ -106,6 +124,16 @@ export const ChatHeroInput = forwardRef<ChatHeroInputHandle, ChatHeroInputProps>
   }, [editor, registerAsChatTabInput])
 
   useContextFilesEditorSync(editor)
+
+  const contextDisplay = useStoreWithEqualityFn(
+    useCommandStore,
+    (s) => {
+      const session = sessionId ? s.sessionById[sessionId] : null
+      if (!session) return { usedTokens: 0, limitTokens: 0, estimated: true }
+      return resolveContextDisplayState(session)
+    },
+    shallow,
+  )
 
   return (
     <div
@@ -224,40 +252,60 @@ export const ChatHeroInput = forwardRef<ChatHeroInputHandle, ChatHeroInputProps>
           )}
         </div>
 
-        {/* Right: send / stop button — dual-mode based on session processing state */}
-        {modelSelection && (
-          <ModelSwitcher
-            value={modelSelection.value}
-            options={modelSelection.options}
-            onChange={modelSelection.onChange}
-            disabled={modelSelection.disabled}
-            size="md"
-            dropdownPosition="above"
-            className="ml-auto mr-1 min-w-0"
-          />
-        )}
-        {sessionControl?.isProcessing ? (
-          <StopButtonPopover onStop={sessionControl.onStop} size="md" />
-        ) : (
-          <button
-            onClick={submit}
-            disabled={isDisabled || !hasContent}
-            aria-label={t('chatHero.sendAria')}
-            className={cn(
-              'p-1.5 rounded-lg transition-all',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]',
-              hasContent && !isDisabled
-                ? 'bg-[hsl(var(--foreground))] text-[hsl(var(--background))] hover:opacity-90 shadow-sm'
-                : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed opacity-50'
-            )}
-          >
-            {isSending ? (
-              <Loader2 className="w-4 h-4 motion-safe:animate-spin" aria-hidden="true" />
-            ) : (
-              <ArrowUp className="w-4 h-4" aria-hidden="true" />
-            )}
-          </button>
-        )}
+        {/* Right: context ring + model switcher + send/stop */}
+        <div className="flex items-center gap-1.5 ml-auto">
+          {sessionId && (
+            <ContextWindowRing
+              contextUsed={contextDisplay.usedTokens}
+              contextLimit={contextDisplay.limitTokens}
+              estimated={contextDisplay.estimated}
+            />
+          )}
+          {modelSelection && (
+            <ModelSwitcher
+              value={modelSelection.value}
+              options={modelSelection.options}
+              onChange={modelSelection.onChange}
+              disabled={modelSelection.disabled}
+              size="md"
+              dropdownPosition="above"
+              className="min-w-0"
+            />
+          )}
+          {reasoningEffortSelection && (
+            <ReasoningEffortSwitcher
+              value={reasoningEffortSelection.value}
+              globalDefault={reasoningEffortSelection.globalDefault}
+              onChange={reasoningEffortSelection.onChange}
+              disabled={reasoningEffortSelection.disabled}
+              size="md"
+              dropdownPosition="above"
+              className="min-w-0"
+            />
+          )}
+          {sessionControl?.isProcessing ? (
+            <StopButtonPopover onStop={sessionControl.onStop} size="md" />
+          ) : (
+            <button
+              onClick={submit}
+              disabled={isDisabled || !hasContent}
+              aria-label={t('chatHero.sendAria')}
+              className={cn(
+                'p-1.5 rounded-lg transition-all',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]',
+                hasContent && !isDisabled
+                  ? 'bg-[hsl(var(--foreground))] text-[hsl(var(--background))] hover:opacity-90 shadow-sm'
+                  : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed opacity-50'
+              )}
+            >
+              {isSending ? (
+                <Loader2 className="w-4 h-4 motion-safe:animate-spin" aria-hidden="true" />
+              ) : (
+                <ArrowUp className="w-4 h-4" aria-hidden="true" />
+              )}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

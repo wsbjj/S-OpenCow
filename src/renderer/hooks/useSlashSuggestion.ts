@@ -23,6 +23,8 @@ export interface UseSlashSuggestionReturn {
 
 export interface UseSlashSuggestionOptions {
   engineKind?: AIEngineKind
+  /** Called when a slash item with a nativeAction is selected. Receives the item. */
+  onNativeAction?: (item: SlashItem) => void
 }
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
@@ -48,6 +50,11 @@ export function useSlashSuggestion(options?: UseSlashSuggestionOptions): UseSlas
   const itemsRef = useRef(slash.allItems)
   itemsRef.current = slash.allItems
 
+  // Ref for latest onNativeAction — allows the stable `command` callback to call
+  // the latest handler without adding it to the useMemo dependency array
+  const onNativeActionRef = useRef(options?.onNativeAction)
+  onNativeActionRef.current = options?.onNativeAction
+
   const suggestion = useMemo(
     () => ({
       char: '/',
@@ -56,6 +63,11 @@ export function useSlashSuggestion(options?: UseSlashSuggestionOptions): UseSlas
       items: ({ query }: { query: string }) => filterSlashItems(itemsRef.current, query),
       render: rendererRef.current,
       command: ({ editor, range, props: item }: { editor: Editor; range: Range; props: SlashItem }) => {
+        if (item.nativeAction && onNativeActionRef.current) {
+          editor.chain().focus().deleteRange(range).run()
+          onNativeActionRef.current(item)
+          return
+        }
         editor
           .chain()
           .focus()

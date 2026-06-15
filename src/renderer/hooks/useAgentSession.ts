@@ -14,7 +14,7 @@ import {
   resolveSessionChatModelSelection,
   type ChatModelOption,
 } from '@/lib/chatModelOptions'
-import type { SessionSnapshot, ManagedSessionState, SetSessionModelInput, UserMessageContent } from '@shared/types'
+import type { SessionSnapshot, ManagedSessionState, SetSessionModelInput, UserMessageContent, CodexReasoningEffort } from '@shared/types'
 
 /**
  * Session origin sources eligible for the [Chat] tab.
@@ -69,6 +69,13 @@ export interface AgentSessionHandle {
     onChange: (selection: SetSessionModelInput) => void
     disabled?: boolean
   } | null
+  /** Reasoning effort selection for Codex sessions (null when not applicable). */
+  reasoningEffortSelection: {
+    value: CodexReasoningEffort | null
+    globalDefault: CodexReasoningEffort
+    onChange: (effort: CodexReasoningEffort | null) => void
+    disabled?: boolean
+  } | null
 
   // ── Session navigation ────────────────────────────────────────
 
@@ -119,6 +126,7 @@ export function useAgentSession(): AgentSessionHandle {
   const setChatSessionId = useAppStore((s) => s.setAgentChatSessionId)
   const settings = useSettingsStore((s) => s.settings)
   const setSessionModel = useCommandStore((s) => s.setSessionModel)
+  const setSessionReasoningEffort = useCommandStore((s) => s.setSessionReasoningEffort)
 
   const clearSessionId = useCallback(() => setChatSessionId(null), [setChatSessionId])
 
@@ -191,6 +199,46 @@ export function useAgentSession(): AgentSessionHandle {
     }
   }, [base.isStarting, currentModelSelection, handleModelSelectionChange, modelOptions])
 
+  // ── Reasoning effort selection ────────────────────────────────
+
+  const globalReasoningDefault: CodexReasoningEffort =
+    (settings?.provider?.byEngine?.codex?.defaultReasoningEffort) ?? 'medium'
+
+  const [pendingReasoningEffort, setPendingReasoningEffort] = useState<CodexReasoningEffort | null>(null)
+
+  const handleReasoningEffortChange = useCallback(
+    (effort: CodexReasoningEffort | null) => {
+      if (base.session?.id) {
+        void setSessionReasoningEffort(base.session.id, effort)
+      } else {
+        setPendingReasoningEffort(effort)
+      }
+    },
+    [base.session?.id, setSessionReasoningEffort],
+  )
+
+  const effectiveEngineKind = base.session?.desiredEngineKind ?? base.session?.engineKind
+  const emptyEngineKind = effectiveNewModelSelection?.engineKind
+  const reasoningEffortSelection = useMemo<AgentSessionHandle['reasoningEffortSelection']>(() => {
+    if (base.session) {
+      if (effectiveEngineKind !== 'codex') return null
+      return {
+        value: base.session.modelReasoningEffort ?? null,
+        globalDefault: globalReasoningDefault,
+        onChange: handleReasoningEffortChange,
+        disabled: base.isStarting,
+      }
+    }
+    // Empty chat state: show when the selected engine will be codex
+    if (emptyEngineKind !== 'codex') return null
+    return {
+      value: pendingReasoningEffort,
+      globalDefault: globalReasoningDefault,
+      onChange: handleReasoningEffortChange,
+      disabled: base.isStarting,
+    }
+  }, [base.session, base.isStarting, effectiveEngineKind, emptyEngineKind, globalReasoningDefault, handleReasoningEffortChange, pendingReasoningEffort])
+
   // ── Start new session ─────────────────────────────────────────
 
   const handleStartChat = useCallback(
@@ -206,6 +254,9 @@ export function useAgentSession(): AgentSessionHandle {
         })
         if (sessionId) {
           setChatSessionId(sessionId)
+          if (pendingReasoningEffort !== null) {
+            void setSessionReasoningEffort(sessionId, pendingReasoningEffort)
+          }
           return true
         }
         return false
@@ -215,7 +266,7 @@ export function useAgentSession(): AgentSessionHandle {
         base.setIsStarting(false)
       }
     },
-    [base, effectiveNewModelSelection, setChatSessionId]
+    [base, effectiveNewModelSelection, setChatSessionId, pendingReasoningEffort, setSessionReasoningEffort]
   )
 
   // ── Unified send/queue (with start) ───────────────────────────
@@ -243,6 +294,7 @@ export function useAgentSession(): AgentSessionHandle {
     stop: base.handleStop,
     messageQueue: base.messageQueue,
     modelSelection,
+    reasoningEffortSelection,
     sessions,
     selectSession
   }

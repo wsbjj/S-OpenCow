@@ -175,7 +175,8 @@ function sessionStableEqual(a: SessionSnapshot | null, b: SessionSnapshot | null
     a.stopReason === b.stopReason &&
     a.model === b.model &&
     a.projectId === b.projectId &&
-    a.projectPath === b.projectPath
+    a.projectPath === b.projectPath &&
+    a.modelReasoningEffort === b.modelReasoningEffort
   )
 }
 

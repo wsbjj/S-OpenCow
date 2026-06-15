@@ -16,6 +16,8 @@ import type {
   SessionExecutionContext,
   SessionContextState,
   SessionContextTelemetry,
+  CompactContinuationContext,
+  CodexReasoningEffort,
   EvoseRelayEvent,
   EvoseProgressBlock,
   EvoseToolCallBlock,
@@ -167,6 +169,11 @@ export class ManagedSession {
   private _stopReason: SessionStopReason | null = null
   private systemEventIndex = new Map<string, string>()
   private executionContext: SessionExecutionContext | null = null
+  private compactContinuationContext: CompactContinuationContext | null = null
+  private pendingCompact = false
+  private modelReasoningEffort: CodexReasoningEffort | null = null
+  /** Estimated token count of the continuation system prompt injected after compact. */
+  private postCompactTokens = 0
 
   constructor(config: ManagedSessionRuntimeConfig) {
     this.sessionId = `ccb-${nanoid(12)}`
@@ -537,6 +544,70 @@ export class ManagedSession {
     if (!this.contextState) return
     this.contextState = null
     this.lastActivity = Date.now()
+  }
+
+  /**
+   * Apply a compact continuation after three-layer compaction.
+   * Follows the same pattern as switchEngine():
+   * - Clears engine-specific state (ref, engineState) so the next lifecycle
+   *   starts fresh (startThread) instead of resuming.
+   * - Stores the continuation context for system prompt injection.
+   * - Marks the session as pendingCompact for resumeSessionInternal() detection.
+   * - Injects the continuation system prompt into contextSystemPrompt.
+   * - Inserts a compact_boundary marker into the message timeline.
+   *
+   * Note: the compact_boundary is added by the caller (compactSession) in
+   * 'compacting' phase before this method is called, and updated to 'done'
+   * afterwards via updateSystemEventById. This method no longer inserts a
+   * second boundary.
+   */
+  applyCompactContinuation(params: {
+    ctx: CompactContinuationContext
+    continuationSystemPrompt: string
+    preTokens: number
+    trigger: 'manual' | 'auto'
+  }): void {
+    const { ctx, continuationSystemPrompt, preTokens, trigger } = params
+
+    // 1. Store continuation context
+    this.compactContinuationContext = ctx
+
+    // 2. Clear engine-specific state (next lifecycle must startThread, not resume)
+    this.engineSessionRef = null
+    this.engineState = null
+    this.clearContextState()
+
+    // 3. Mark pending compact
+    this.pendingCompact = true
+
+    // 4. Replace contextSystemPrompt with continuation
+    this.config = { ...this.config, contextSystemPrompt: continuationSystemPrompt }
+
+    // 5. Stash estimated size so ContextWindowRing shows a non-zero value
+    //    before the first API response restores contextState.
+    this.postCompactTokens = Math.ceil(continuationSystemPrompt.length / 4)
+
+    this.lastActivity = Date.now()
+  }
+
+  isPendingCompact(): boolean {
+    return this.pendingCompact
+  }
+
+  getReasoningEffort(): CodexReasoningEffort | null {
+    return this.modelReasoningEffort
+  }
+
+  setReasoningEffort(effort: CodexReasoningEffort | null): void {
+    this.modelReasoningEffort = effort
+  }
+
+  clearPendingCompact(): void {
+    this.pendingCompact = false
+  }
+
+  getCompactContinuationContext(): CompactContinuationContext | null {
+    return this.compactContinuationContext
   }
 
   /**
@@ -965,13 +1036,18 @@ export class ManagedSession {
       totalCostUsd: this.totalCostUsd,
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
-      lastInputTokens: contextState?.usedTokens ?? 0,
+      lastInputTokens: contextState?.usedTokens ?? (this.compactContinuationContext ? this.postCompactTokens : 0),
       contextLimitOverride: contextState?.limitTokens ?? null,
       contextState,
       contextTelemetry,
       activity: this.activity,
       error: this.error,
       executionContext: this.executionContext ? { ...this.executionContext } : null,
+      compactContinuationContext: this.compactContinuationContext
+        ? { ...this.compactContinuationContext }
+        : null,
+      pendingCompact: this.pendingCompact,
+      modelReasoningEffort: this.modelReasoningEffort,
     }
   }
 
@@ -1084,6 +1160,11 @@ export class ManagedSession {
     session.error = info.error
     if (info.executionContext) {
       session.executionContext = { ...info.executionContext }
+    }
+    session.pendingCompact = info.pendingCompact ?? false
+    session.compactContinuationContext = info.compactContinuationContext ?? null
+    if (info.modelReasoningEffort != null) {
+      session.modelReasoningEffort = info.modelReasoningEffort
     }
     return session
   }

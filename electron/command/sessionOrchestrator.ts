@@ -7,6 +7,7 @@ import {
   type ApiProvider,
   type CodexReasoningEffort,
   type CommandDefaults,
+  type CompactContinuationContext,
   type ContentBlock,
   type DataBusEvent,
   type DocumentMediaType,
@@ -62,6 +63,14 @@ import { planSessionPolicy } from './policy/sessionPolicyPlanner'
 import { decideSessionReconfiguration } from './policy/sessionReconfigurationCoordinator'
 import { buildConversationSummary } from './conversationSummary'
 import { dispatchSessionTerminal as dispatchSessionTerminalEvent } from './sessionTerminalDispatcher'
+import type { HeadlessLLMClient } from '../llm/types'
+import {
+  buildCompactContinuationContext,
+  formatContinuationAsSystemPrompt,
+  groupMessagesIntoTurns,
+  assembleContinuationLayers,
+} from './conversationContinuationSummary'
+import { resolveContextDisplayState } from '../../src/shared/contextDisplay'
 
 const log = createLogger('Orchestrator')
 
@@ -114,6 +123,12 @@ export interface OrchestratorDeps {
   getMemoryContext?: (projectId: string | null) => Promise<{ formatted: string; memories: Array<{ id: string }> } | null>
   /** Optional project resolver used by SessionWorkspaceResolver. */
   resolveProjectById?: ((projectId: string) => Promise<{ id: string; canonicalPath: string } | null>) | null
+  /**
+   * Factory for creating a HeadlessLLMClient for Layer 3 summarization.
+   * Engine-scoped: uses the session's current auth credentials.
+   * When undefined, compactSession() returns false with a warning.
+   */
+  createCompactionLLMClient?: (engineKind: AIEngineKind) => Promise<HeadlessLLMClient | null>
 }
 
 // Re-export for downstream consumers (e.g. marketplace service)
@@ -158,6 +173,26 @@ function userContentToBlocks(content: UserMessageContent): ContentBlock[] {
       }
     }
   })
+}
+
+/**
+ * Returns true if the message content is exactly the /compact slash command.
+ * Case-sensitive, trims whitespace. Accepts either a raw string or a
+ * single-block text array (UserMessageContent).
+ */
+function isCompactCommand(content: UserMessageContent): boolean {
+  if (typeof content === 'string') return content.trim() === '/compact'
+  if (Array.isArray(content) && content.length === 1) {
+    const block = content[0]
+    return (
+      block != null &&
+      typeof block === 'object' &&
+      block.type === 'text' &&
+      typeof block.text === 'string' &&
+      block.text.trim() === '/compact'
+    )
+  }
+  return false
 }
 
 /**
@@ -220,6 +255,8 @@ export class SessionOrchestrator {
   private readonly engineBootstrapRegistry: EngineBootstrapRegistry
   private readonly workspaceResolver: SessionWorkspaceResolver
   private auditTimer: ReturnType<typeof setInterval> | null = null
+  /** Sessions currently undergoing a compact operation (prevents concurrent auto-compact). */
+  private compactingSessionIds = new Set<string>()
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps
@@ -449,6 +486,7 @@ export class SessionOrchestrator {
       policy: null,
       providerMode: null,
       launchModel: null,
+      launchReasoningEffort: null,
       spawnErrorCount: 0,
       onComplete: input.onComplete,
       completionFired: false,
@@ -589,10 +627,16 @@ export class SessionOrchestrator {
       },
       logger: log,
     })
+    // Session-level reasoning effort overrides global provider default (Codex only)
+    const sessionEffort = session.getReasoningEffort()
+    if (sessionEffort && engineKind === 'codex') {
+      options.codexModelReasoningEffort = sessionEffort
+    }
     if (rt) {
       rt.launchModel = typeof options.model === 'string' && options.model.trim()
         ? options.model.trim()
         : null
+      rt.launchReasoningEffort = sessionEffort ?? null
     }
 
     // ── System prompt layer stack ──
@@ -1035,7 +1079,67 @@ export class SessionOrchestrator {
     return true
   }
 
+  async setSessionReasoningEffort(sessionId: string, effort: CodexReasoningEffort | null): Promise<boolean> {
+    const rt = this.runtimes.get(sessionId)
+    let session = rt?.session ?? null
+    if (!session) {
+      const persisted = await this.store.get(sessionId)
+      if (!persisted) return false
+      session = ManagedSession.fromInfo(persisted)
+    }
+    session.setReasoningEffort(effort)
+    this.dispatchSessionUpdate(session)
+    await this.store.save(session.toPersistenceRecord())
+    return true
+  }
+
   async sendMessage(sessionId: string, content: UserMessageContent): Promise<boolean> {
+    // ── Apply pending engine / model selection before /compact ──────────────────────
+    // Engine drift detection normally runs after the /compact intercept, which means
+    // compactSession() would see the OLD engine kind and resolve wrong credentials
+    // (e.g. Codex auth when the user has just switched to Claude).  Eagerly applying
+    // the selection here is safe because:
+    //  • It only mutates session.engineKind in-place — no lifecycle restart yet.
+    //  • compactSession() will then use the correct engine for auth resolution.
+    //  • The lifecycle restart (if still needed) happens on the next user message.
+    //  • The later detectAndApplySessionModelSelection call becomes a no-op.
+    const rtEarly = this.runtimes.get(sessionId)
+    if (rtEarly) {
+      this.detectAndApplySessionModelSelection(rtEarly)
+    }
+
+    // ── /compact intercept ──────────────────────────────────────────────────────────
+    if (isCompactCommand(content)) {
+      log.info('sendMessage: /compact command intercepted', { sessionId })
+      return await this.compactSession(sessionId, 'manual')
+    }
+
+    // ── Auto-compact at 90% context usage ──────────────────────────────────────────
+    {
+      const snapshot = this.runtimes.get(sessionId)?.session.snapshot()
+        ?? (await this.store.getSnapshot(sessionId))
+        ?? null
+      if (snapshot) {
+        const { usedTokens, limitTokens } = resolveContextDisplayState(snapshot)
+        if (limitTokens > 0 && usedTokens / limitTokens >= 0.9 && !this.compactingSessionIds.has(sessionId)) {
+          log.info('sendMessage: auto-compact triggered (>= 90% context usage)', {
+            sessionId,
+            ratio: Math.round((usedTokens / limitTokens) * 100),
+          })
+          this.compactingSessionIds.add(sessionId)
+          try {
+            const compacted = await this.compactSession(sessionId, 'auto')
+            if (!compacted) {
+              log.warn('sendMessage: auto-compact failed, proceeding without compaction', { sessionId })
+              // Do NOT return false — continue sending the message.
+            }
+          } finally {
+            this.compactingSessionIds.delete(sessionId)
+          }
+        }
+      }
+    }
+
     const rt = this.runtimes.get(sessionId)
     log.debug('sendMessage entered', {
       sessionId,
@@ -1206,7 +1310,172 @@ export class SessionOrchestrator {
     return false
   }
 
+  /**
+   * Perform a three-layer context compaction for the given session.
+   *
+   * Replaces the live conversation history with a compact continuation context
+   * (Layer 1 verbatim recent turns + Layer 2 user prompts/bot briefs + Layer 3
+   * LLM summary) injected as the session's contextSystemPrompt. The next
+   * lifecycle starts a fresh thread (no resume) seeded with this context.
+   *
+   * Returns true on success, false when compaction could not be performed
+   * (missing LLM factory, no messages, or over-budget continuation). On
+   * auto-trigger failure the caller should continue without blocking the user.
+   */
+  async compactSession(sessionId: string, trigger: 'manual' | 'auto' = 'manual'): Promise<boolean> {
+    // 1. Resolve the session — running runtime takes precedence over store.
+    const rt = this.runtimes.get(sessionId)
+    let session: ManagedSession | null = rt?.session ?? null
+    if (!session) {
+      const persisted = await this.store.get(sessionId)
+      if (!persisted) {
+        log.warn('compactSession ignored: session not found', { sessionId })
+        return false
+      }
+      session = ManagedSession.fromInfo(persisted)
+    }
+
+    const messages = session.getMessages()
+    if (messages.length === 0) {
+      log.warn('compactSession skipped: session has no messages', { sessionId, trigger })
+      return false
+    }
+
+    // 2. Resolve pre-compaction token usage and the model context limit.
+    const snapshot = session.snapshot()
+    const { usedTokens: preTokens, limitTokens } = resolveContextDisplayState(snapshot)
+
+    // 3. Surface a 'compacting' boundary so the UI can show a loading state
+    //    while the Layer 3 LLM summary is being generated.
+    const compactingBoundaryId = session.addSystemEvent({
+      type: 'compact_boundary',
+      trigger,
+      preTokens,
+      phase: 'compacting',
+    })
+    this.dispatchLastSystemEvent(session)
+    this.dispatchSessionUpdate(session)
+
+    /** Mark the compacting boundary as 'error' and broadcast — clears the UI loading state. */
+    const abortWithError = (): false => {
+      session.updateSystemEventById(compactingBoundaryId, (event) => {
+        if (event.type === 'compact_boundary') {
+          event.phase = 'error'
+        }
+      })
+      this.dispatchLastSystemEvent(session)
+      this.dispatchSessionUpdate(session)
+      return false
+    }
+
+    // 4. The LLM client factory is an optional dependency. Without it we cannot
+    //    build the Layer 3 summary, so abort gracefully (no throw).
+    if (!this.deps.createCompactionLLMClient) {
+      log.warn('compactSession aborted: createCompactionLLMClient dependency not configured', { sessionId })
+      return abortWithError()
+    }
+
+    let llmClient: HeadlessLLMClient | null
+    try {
+      llmClient = await this.deps.createCompactionLLMClient(session.getEngineKind())
+    } catch (err) {
+      log.error('compactSession failed to create LLM client', { sessionId, err })
+      return abortWithError()
+    }
+    if (!llmClient) {
+      log.warn('compactSession aborted: LLM client factory returned null', { sessionId })
+      return abortWithError()
+    }
+
+    // 5. Build the three-layer continuation context (one LLM call + fallback).
+    let ctx: CompactContinuationContext
+    try {
+      ctx = await buildCompactContinuationContext({ messages, llmClient })
+    } catch (err) {
+      log.error('compactSession failed to build continuation context', { sessionId, err })
+      return abortWithError()
+    }
+
+    // 6. Serialize the continuation into a system prompt block. Layer 1 recent
+    //    turns are embedded in the prompt because the next lifecycle starts a
+    //    fresh thread (engineRef is cleared) and cannot replay raw messages.
+    const layers = assembleContinuationLayers(groupMessagesIntoTurns(messages))
+    const continuationSystemPrompt = formatContinuationAsSystemPrompt(ctx, layers.layer1TurnMessages)
+
+    // 7. Over-budget guard: a continuation that already consumes a large share
+    //    of the context window defeats the purpose of compacting. Estimate
+    //    tokens from prompt length (~4 chars/token) and abort if it exceeds 60%.
+    const estimatedContinuationTokens = Math.ceil(continuationSystemPrompt.length / 4)
+    if (limitTokens > 0 && estimatedContinuationTokens > limitTokens * 0.6) {
+      log.warn('compactSession aborted: continuation context exceeds 60% of context limit', {
+        sessionId,
+        estimatedContinuationTokens,
+        limitTokens,
+      })
+      return abortWithError()
+    }
+
+    // 8. Apply the continuation. This clears engine state, marks pendingCompact,
+    //    and replaces contextSystemPrompt. The compacting boundary is updated to
+    //    'done' in-place so the UI stops spinning.
+    session.applyCompactContinuation({
+      ctx,
+      continuationSystemPrompt,
+      preTokens,
+      trigger,
+    })
+    session.updateSystemEventById(compactingBoundaryId, (event) => {
+      if (event.type === 'compact_boundary') {
+        event.phase = 'done'
+      }
+    })
+
+    // 9. Persist and broadcast the post-compaction state.
+    try {
+      await this.store.save(session.toPersistenceRecord())
+    } catch (err) {
+      log.error('compactSession failed to persist post-compaction state', { sessionId, err })
+    }
+    this.dispatchLastSystemEvent(session)
+    this.dispatchSessionUpdate(session)
+
+    log.info('compactSession completed', {
+      sessionId,
+      trigger,
+      preTokens,
+      layer1TurnCount: ctx.layer1TurnCount,
+      layer3IsLLM: ctx.layer3IsLLM,
+      totalTurnsCompacted: ctx.totalTurnsCompacted,
+      estimatedContinuationTokens,
+    })
+    return true
+  }
+
   async resumeSession(sessionId: string, message: UserMessageContent): Promise<boolean> {
+    // ── Auto-compact at 90% context usage ────────────────────────────────────────
+    {
+      const snapshot = this.runtimes.get(sessionId)?.session.snapshot()
+        ?? (await this.store.getSnapshot(sessionId))
+        ?? null
+      if (snapshot) {
+        const { usedTokens, limitTokens } = resolveContextDisplayState(snapshot)
+        if (limitTokens > 0 && usedTokens / limitTokens >= 0.9 && !this.compactingSessionIds.has(sessionId)) {
+          log.info('resumeSession: auto-compact triggered (>= 90% context usage)', {
+            sessionId,
+            ratio: Math.round((usedTokens / limitTokens) * 100),
+          })
+          this.compactingSessionIds.add(sessionId)
+          try {
+            const compacted = await this.compactSession(sessionId, 'auto')
+            if (!compacted) {
+              log.warn('resumeSession: auto-compact failed, proceeding without compaction', { sessionId })
+            }
+          } finally {
+            this.compactingSessionIds.delete(sessionId)
+          }
+        }
+      }
+    }
     return this.resumeSessionInternal(sessionId, message, { forceRestart: false })
   }
 
@@ -1241,6 +1510,27 @@ export class SessionOrchestrator {
       log.info('resumeSessionInternal: session model selection drift detected, skipping fast path for full restart', { sessionId })
       forceRestart = true
     }
+    if (
+      existing
+      && !forceRestart
+      && existing.session.getReasoningEffort() !== existing.launchReasoningEffort
+    ) {
+      log.info('resumeSessionInternal: reasoning effort changed, forcing full restart', {
+        sessionId,
+        launched: existing.launchReasoningEffort,
+        current: existing.session.getReasoningEffort(),
+      })
+      forceRestart = true
+    }
+
+    // ── pendingCompact: force fresh startThread() after three-layer compaction ──
+    // When the session was compacted, engineRef was cleared and pendingCompact was set.
+    // Force startThread() (no resume) so the new lifecycle picks up the
+    // continuation system prompt injected by applyCompactContinuation().
+    if (!forceRestart && existing?.session.isPendingCompact()) {
+      log.info('resumeSessionInternal: pendingCompact detected, forcing fresh startThread()', { sessionId })
+      forceRestart = true
+    }
 
     // Fast path: if the SDK process is still alive (multi-turn wait mode),
     // push to the existing queue instead of the expensive kill → restart cycle.
@@ -1267,6 +1557,14 @@ export class SessionOrchestrator {
       session = ManagedSession.fromInfo(persisted)
     }
 
+    // pendingCompact for persisted sessions (no active runtime): a compacted
+    // session has its engineRef cleared, so skip the missing-engineRef guard
+    // below and force a fresh startThread() seeded with the continuation prompt.
+    if (!forceRestart && session.isPendingCompact()) {
+      log.info('resumeSessionInternal: pendingCompact detected on persisted session, forcing fresh startThread()', { sessionId })
+      forceRestart = true
+    }
+
     // Engine/model selection drift check — covers persisted sessions restored
     // from store (no active runtime). Idempotent: no-op if already applied above.
     const desiredEngineSwitched = this.applyDesiredEngineSelection(session)
@@ -1274,7 +1572,7 @@ export class SessionOrchestrator {
       || (!this.hasSessionModelSelection(session) && this.detectAndApplyEngineDrift(session))
 
     const engineSessionRef = session.getEngineRef()
-    if (!engineSessionRef && !forceRestart && !engineSwitched) {
+    if (!engineSessionRef && !forceRestart && !engineSwitched && !session.isPendingCompact()) {
       log.warn('resumeSession failed: missing engine session ref', { sessionId })
       return false
     }
@@ -1284,6 +1582,10 @@ export class SessionOrchestrator {
 
     session.addMessage('user', userContentToBlocks(message))
     session.transition({ type: 'resume_session' })
+    // Clear pendingCompact NOW so a subsequent resume doesn't force-restart again.
+    if (session.isPendingCompact()) {
+      session.clearPendingCompact()
+    }
 
     // Dispatch user message + state update
     const lastMsg = session.getLastMessage()
@@ -1310,6 +1612,7 @@ export class SessionOrchestrator {
       policy: null,
       providerMode: null,
       launchModel: null,
+      launchReasoningEffort: null,
       spawnErrorCount: existing?.spawnErrorCount ?? 0,
       completionFired: false,
     }

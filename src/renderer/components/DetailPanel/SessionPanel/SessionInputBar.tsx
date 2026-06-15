@@ -12,11 +12,17 @@ import { AttachmentPreviewList } from '../../ui/AttachmentPreviewList'
 import { StopButtonPopover } from '../../ui/StopButtonPopover'
 import type { SessionControlProps } from '../../ui/StopButtonPopover'
 import { ModelSwitcher, type ModelSwitcherProps } from '../../ui/ModelSwitcher'
+import { ReasoningEffortSwitcher } from '../../ui/ReasoningEffortSwitcher'
+import { ContextWindowRing } from '../../ui/ContextWindowRing'
 import { registerSessionInputFocus, unregisterSessionInputFocus } from '../../../hooks/useSlashFocusShortcut'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
+import { shallow } from 'zustand/shallow'
+import { useCommandStore } from '@/stores/commandStore'
+import { resolveContextDisplayState } from '@shared/contextDisplay'
 import { useProjectScope } from '@/contexts/ProjectScopeContext'
 import { useContextFilesEditorSync } from '@/hooks/useContextFilesEditorSync'
 import { FILE_INPUT_ACCEPT } from '@/lib/attachmentUtils'
-import type { AIEngineKind, UserMessageContent } from '@shared/types'
+import type { AIEngineKind, UserMessageContent, CodexReasoningEffort } from '@shared/types'
 import { ATTACHMENT_LIMITS } from '@shared/types'
 import type { SlashItem } from '@shared/slashItems'
 
@@ -32,6 +38,15 @@ interface SessionInputBarProps {
   sessionControl?: SessionControlProps
   /** Optional session/new-chat model switcher state. */
   modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
+  /** Optional reasoning effort switcher (Codex sessions only). */
+  reasoningEffortSelection?: {
+    value: CodexReasoningEffort | null
+    globalDefault: CodexReasoningEffort
+    onChange: (effort: CodexReasoningEffort | null) => void
+    disabled?: boolean
+  }
+  /** Session ID for IPC-based native actions (e.g. /compact). */
+  sessionId?: string
 }
 
 /** Imperative handle exposed to parent components via ref. */
@@ -50,7 +65,7 @@ export interface SessionInputBarHandle {
  * SessionInputBar's props (onSend, disabled, placeholder, etc.) only change
  * at state transitions (idle → streaming, streaming → idle), NOT on every chunk.
  */
-export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInputBarProps>(function SessionInputBar({ onSend, disabled, placeholder, engineKind, cacheKey, sessionControl, modelSelection }: SessionInputBarProps, ref): React.JSX.Element {
+export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInputBarProps>(function SessionInputBar({ onSend, disabled, placeholder, engineKind, cacheKey, sessionControl, modelSelection, reasoningEffortSelection, sessionId }: SessionInputBarProps, ref): React.JSX.Element {
   const { t } = useTranslation('sessions')
   const { t: tCommon } = useTranslation('common')
   const { projectPath } = useProjectScope()
@@ -80,6 +95,7 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
     onSubmit: onSend,
     cacheKey,
     engineKind,
+    sessionId,
   })
 
   /* -- Expose addAttachments to parent (for console-wide file drop zone) -- */
@@ -88,6 +104,16 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
     setDraft,
     clearDraft: clear,
   }), [addAttachments, setDraft, clear])
+
+  const contextDisplay = useStoreWithEqualityFn(
+    useCommandStore,
+    (s) => {
+      const session = sessionId ? s.sessionById[sessionId] : null
+      if (!session) return { usedTokens: 0, limitTokens: 0, estimated: true }
+      return resolveContextDisplayState(session)
+    },
+    shallow,
+  )
 
   /* -- Stop mode: send button transforms to stop action during processing -- */
   const isStopMode = sessionControl?.isProcessing === true
@@ -243,12 +269,32 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
           </div>
         )}
 
+        {sessionId && (
+          <ContextWindowRing
+            contextUsed={contextDisplay.usedTokens}
+            contextLimit={contextDisplay.limitTokens}
+            estimated={contextDisplay.estimated}
+          />
+        )}
+
         {modelSelection && (
           <ModelSwitcher
             value={modelSelection.value}
             options={modelSelection.options}
             onChange={modelSelection.onChange}
             disabled={modelSelection.disabled}
+            size="sm"
+            dropdownPosition="above"
+            className="shrink-0"
+          />
+        )}
+
+        {reasoningEffortSelection && (
+          <ReasoningEffortSwitcher
+            value={reasoningEffortSelection.value}
+            globalDefault={reasoningEffortSelection.globalDefault}
+            onChange={reasoningEffortSelection.onChange}
+            disabled={reasoningEffortSelection.disabled}
             size="sm"
             dropdownPosition="above"
             className="shrink-0"

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+﻿// SPDX-License-Identifier: Apache-2.0
 
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -72,8 +72,23 @@ export const SystemEventView = memo(function SystemEventView({ event }: SystemEv
           >
             <div className="flex-1 h-px bg-orange-400/20" />
             <Loader2 className="w-3.5 h-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />
-            <span>Optimizing conversation memory{'\u2026'}</span>
+            <span>Optimizing conversation memory{'…'}</span>
             <div className="flex-1 h-px bg-orange-400/20" />
+          </li>
+        )
+      }
+
+      // Phase: Error — compact was attempted but failed
+      if (phase === 'error') {
+        return (
+          <li
+            className="flex items-center gap-2.5 py-1 text-xs font-mono text-red-400/70"
+            aria-label="Memory optimization failed"
+          >
+            <div className="flex-1 h-px bg-red-400/20" />
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span>Memory optimization failed</span>
+            <div className="flex-1 h-px bg-red-400/20" />
           </li>
         )
       }
@@ -90,7 +105,7 @@ export const SystemEventView = memo(function SystemEventView({ event }: SystemEv
         >
           <div className="flex-1 h-px bg-[hsl(var(--border))]" />
           <Scissors className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-          <span>Memory optimized {'\u00b7'} saved {tokenLabel} tokens</span>
+          <span>Memory optimized {'·'} saved {tokenLabel} tokens</span>
           <div className="flex-1 h-px bg-[hsl(var(--border))]" />
         </li>
       )

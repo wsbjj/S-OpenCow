@@ -70,8 +70,8 @@ export function ContextWindowRing({
 
   const center = size / 2
 
-  // Don't render when no data is available yet
-  if (contextUsed <= 0 || contextLimit <= 0) return null
+  // Don't render when no limit data is available yet
+  if (contextLimit <= 0) return null
 
   return (
     <span
@@ -115,7 +115,7 @@ export function ContextWindowRing({
       </svg>
       {/* Hover tooltip */}
       <span
-        className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-[hsl(var(--popover))] px-2 py-1 text-[11px] leading-tight text-[hsl(var(--popover-foreground))] shadow-md border border-[hsl(var(--border))] opacity-0 scale-95 transition-all duration-150 group-hover/ring:opacity-100 group-hover/ring:scale-100"
+        className="pointer-events-none absolute left-1/2 bottom-full z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-[hsl(var(--popover))] px-2 py-1 text-[11px] leading-tight text-[hsl(var(--popover-foreground))] shadow-md border border-[hsl(var(--border))] opacity-0 scale-95 origin-bottom transition-all duration-150 group-hover/ring:opacity-100 group-hover/ring:scale-100"
         aria-hidden="true"
       >
         Context: {remainingLabel}% remaining{estimated ? ' (estimated)' : ''}
