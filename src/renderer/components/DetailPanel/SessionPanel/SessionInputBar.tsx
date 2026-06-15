@@ -12,7 +12,12 @@ import { AttachmentPreviewList } from '../../ui/AttachmentPreviewList'
 import { StopButtonPopover } from '../../ui/StopButtonPopover'
 import type { SessionControlProps } from '../../ui/StopButtonPopover'
 import { ModelSwitcher, type ModelSwitcherProps } from '../../ui/ModelSwitcher'
+import { ContextWindowRing } from '../../ui/ContextWindowRing'
 import { registerSessionInputFocus, unregisterSessionInputFocus } from '../../../hooks/useSlashFocusShortcut'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
+import { shallow } from 'zustand/shallow'
+import { useCommandStore } from '@/stores/commandStore'
+import { resolveContextDisplayState } from '@shared/contextDisplay'
 import { useProjectScope } from '@/contexts/ProjectScopeContext'
 import { useContextFilesEditorSync } from '@/hooks/useContextFilesEditorSync'
 import { FILE_INPUT_ACCEPT } from '@/lib/attachmentUtils'
@@ -91,6 +96,16 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
     setDraft,
     clearDraft: clear,
   }), [addAttachments, setDraft, clear])
+
+  const contextDisplay = useStoreWithEqualityFn(
+    useCommandStore,
+    (s) => {
+      const session = sessionId ? s.sessionById[sessionId] : null
+      if (!session) return { usedTokens: 0, limitTokens: 0, estimated: true }
+      return resolveContextDisplayState(session)
+    },
+    shallow,
+  )
 
   /* -- Stop mode: send button transforms to stop action during processing -- */
   const isStopMode = sessionControl?.isProcessing === true
@@ -244,6 +259,14 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
               </div>
             )}
           </div>
+        )}
+
+        {sessionId && (
+          <ContextWindowRing
+            contextUsed={contextDisplay.usedTokens}
+            contextLimit={contextDisplay.limitTokens}
+            estimated={contextDisplay.estimated}
+          />
         )}
 
         {modelSelection && (

@@ -174,6 +174,7 @@ export function SessionChatLayout({
               sessionControl={{ isProcessing, onStop }}
               modelSelection={modelSelection}
               registerAsChatTabInput={registerAsChatTabInput}
+              sessionId={session.id}
             />
           </div>
         </div>
