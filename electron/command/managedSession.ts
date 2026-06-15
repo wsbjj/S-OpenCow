@@ -170,6 +170,8 @@ export class ManagedSession {
   private executionContext: SessionExecutionContext | null = null
   private compactContinuationContext: CompactContinuationContext | null = null
   private pendingCompact = false
+  /** Estimated token count of the continuation system prompt injected after compact. */
+  private postCompactTokens = 0
 
   constructor(config: ManagedSessionRuntimeConfig) {
     this.sessionId = `ccb-${nanoid(12)}`
@@ -578,6 +580,10 @@ export class ManagedSession {
 
     // 4. Replace contextSystemPrompt with continuation
     this.config = { ...this.config, contextSystemPrompt: continuationSystemPrompt }
+
+    // 5. Stash estimated size so ContextWindowRing shows a non-zero value
+    //    before the first API response restores contextState.
+    this.postCompactTokens = Math.ceil(continuationSystemPrompt.length / 4)
 
     this.lastActivity = Date.now()
   }
@@ -1020,7 +1026,7 @@ export class ManagedSession {
       totalCostUsd: this.totalCostUsd,
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
-      lastInputTokens: contextState?.usedTokens ?? 0,
+      lastInputTokens: contextState?.usedTokens ?? (this.compactContinuationContext ? this.postCompactTokens : 0),
       contextLimitOverride: contextState?.limitTokens ?? null,
       contextState,
       contextTelemetry,
