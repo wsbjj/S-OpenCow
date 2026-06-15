@@ -12,11 +12,12 @@ import { AttachmentPreviewList } from '@/components/ui/AttachmentPreviewList'
 import { StopButtonPopover } from '@/components/ui/StopButtonPopover'
 import type { SessionControlProps } from '@/components/ui/StopButtonPopover'
 import { ModelSwitcher, type ModelSwitcherProps } from '@/components/ui/ModelSwitcher'
+import { ReasoningEffortSwitcher } from '@/components/ui/ReasoningEffortSwitcher'
 import { ContextWindowRing } from '@/components/ui/ContextWindowRing'
 import { FILE_INPUT_ACCEPT } from '@/lib/attachmentUtils'
 import { registerChatInputFocus, unregisterChatInputFocus } from '@/lib/chatInputRegistry'
 import { cn } from '@/lib/utils'
-import type { AIEngineKind, UserMessageContent } from '@shared/types'
+import type { AIEngineKind, UserMessageContent, CodexReasoningEffort } from '@shared/types'
 import { ATTACHMENT_LIMITS } from '@shared/types'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { shallow } from 'zustand/shallow'
@@ -32,6 +33,13 @@ interface ChatHeroInputProps {
   sessionControl?: SessionControlProps
   /** Optional session/new-chat model switcher state. */
   modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
+  /** Optional reasoning effort switcher (Codex sessions only). */
+  reasoningEffortSelection?: {
+    value: CodexReasoningEffort | null
+    globalDefault: CodexReasoningEffort
+    onChange: (effort: CodexReasoningEffort | null) => void
+    disabled?: boolean
+  }
   /** Cache key for preserving draft content across input remounts. */
   cacheKey?: string
   /** Registers this instance as the Chat tab's active focus target. */
@@ -65,6 +73,7 @@ export const ChatHeroInput = forwardRef<ChatHeroInputHandle, ChatHeroInputProps>
   engineKind,
   sessionControl,
   modelSelection,
+  reasoningEffortSelection,
   cacheKey,
   registerAsChatTabInput = false,
   sessionId,
@@ -258,6 +267,17 @@ export const ChatHeroInput = forwardRef<ChatHeroInputHandle, ChatHeroInputProps>
               options={modelSelection.options}
               onChange={modelSelection.onChange}
               disabled={modelSelection.disabled}
+              size="md"
+              dropdownPosition="above"
+              className="min-w-0"
+            />
+          )}
+          {reasoningEffortSelection && (
+            <ReasoningEffortSwitcher
+              value={reasoningEffortSelection.value}
+              globalDefault={reasoningEffortSelection.globalDefault}
+              onChange={reasoningEffortSelection.onChange}
+              disabled={reasoningEffortSelection.disabled}
               size="md"
               dropdownPosition="above"
               className="min-w-0"

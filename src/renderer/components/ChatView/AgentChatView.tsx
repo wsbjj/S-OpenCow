@@ -53,6 +53,7 @@ export function AgentChatView({ agent }: AgentChatViewProps): React.JSX.Element 
           projectName={agent.projectName}
           projectId={agent.projectId}
           modelSelection={agent.modelSelection}
+          reasoningEffortSelection={agent.reasoningEffortSelection ?? undefined}
         />
       </ProjectScopeProvider>
     )
@@ -78,6 +79,7 @@ export function AgentChatView({ agent }: AgentChatViewProps): React.JSX.Element 
           controlsMaxW={CONTENT_MAX_W}
           pausedPlaceholder={t('agentChat.continueConversation')}
           modelSelection={agent.modelSelection ?? undefined}
+          reasoningEffortSelection={agent.reasoningEffortSelection ?? undefined}
           inputCacheKey={managedSessionDraftKey(agent.session.id)}
           registerAsChatTabInput
         />
@@ -164,11 +166,13 @@ function EmptyChat({
   projectName,
   projectId,
   modelSelection,
+  reasoningEffortSelection,
 }: {
   onSend: (message: UserMessageContent) => Promise<boolean>
   projectName: string | null
   projectId: string | null
   modelSelection: AgentSessionHandle['modelSelection']
+  reasoningEffortSelection?: AgentSessionHandle['reasoningEffortSelection']
 }): React.JSX.Element {
   const { t } = useTranslation('sessions')
   const isGlobal = !projectName
@@ -227,6 +231,7 @@ function EmptyChat({
             engineKind={modelSelection?.value?.engineKind}
             cacheKey={agentChatNewDraftKey(projectId)}
             modelSelection={modelSelection ?? undefined}
+            reasoningEffortSelection={reasoningEffortSelection ?? undefined}
             registerAsChatTabInput
           />
         </div>

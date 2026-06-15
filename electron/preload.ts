@@ -80,6 +80,7 @@ const invokeChannels: (keyof IPCChannels)[] = [
   'command:stop-session',
   'command:resume-session',
   'command:compact-session',
+  'command:set-session-reasoning-effort',
   'command:list-managed-sessions',
   'command:get-managed-session',
   'command:get-session-message-page',

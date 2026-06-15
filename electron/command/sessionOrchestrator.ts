@@ -486,6 +486,7 @@ export class SessionOrchestrator {
       policy: null,
       providerMode: null,
       launchModel: null,
+      launchReasoningEffort: null,
       spawnErrorCount: 0,
       onComplete: input.onComplete,
       completionFired: false,
@@ -626,10 +627,16 @@ export class SessionOrchestrator {
       },
       logger: log,
     })
+    // Session-level reasoning effort overrides global provider default (Codex only)
+    const sessionEffort = session.getReasoningEffort()
+    if (sessionEffort && engineKind === 'codex') {
+      options.codexModelReasoningEffort = sessionEffort
+    }
     if (rt) {
       rt.launchModel = typeof options.model === 'string' && options.model.trim()
         ? options.model.trim()
         : null
+      rt.launchReasoningEffort = sessionEffort ?? null
     }
 
     // ── System prompt layer stack ──
@@ -1072,6 +1079,20 @@ export class SessionOrchestrator {
     return true
   }
 
+  async setSessionReasoningEffort(sessionId: string, effort: CodexReasoningEffort | null): Promise<boolean> {
+    const rt = this.runtimes.get(sessionId)
+    let session = rt?.session ?? null
+    if (!session) {
+      const persisted = await this.store.get(sessionId)
+      if (!persisted) return false
+      session = ManagedSession.fromInfo(persisted)
+    }
+    session.setReasoningEffort(effort)
+    this.dispatchSessionUpdate(session)
+    await this.store.save(session.toPersistenceRecord())
+    return true
+  }
+
   async sendMessage(sessionId: string, content: UserMessageContent): Promise<boolean> {
     // ── Apply pending engine / model selection before /compact ──────────────────────
     // Engine drift detection normally runs after the /compact intercept, which means
@@ -1431,6 +1452,30 @@ export class SessionOrchestrator {
   }
 
   async resumeSession(sessionId: string, message: UserMessageContent): Promise<boolean> {
+    // ── Auto-compact at 90% context usage ────────────────────────────────────────
+    {
+      const snapshot = this.runtimes.get(sessionId)?.session.snapshot()
+        ?? (await this.store.getSnapshot(sessionId))
+        ?? null
+      if (snapshot) {
+        const { usedTokens, limitTokens } = resolveContextDisplayState(snapshot)
+        if (limitTokens > 0 && usedTokens / limitTokens >= 0.9 && !this.compactingSessionIds.has(sessionId)) {
+          log.info('resumeSession: auto-compact triggered (>= 90% context usage)', {
+            sessionId,
+            ratio: Math.round((usedTokens / limitTokens) * 100),
+          })
+          this.compactingSessionIds.add(sessionId)
+          try {
+            const compacted = await this.compactSession(sessionId, 'auto')
+            if (!compacted) {
+              log.warn('resumeSession: auto-compact failed, proceeding without compaction', { sessionId })
+            }
+          } finally {
+            this.compactingSessionIds.delete(sessionId)
+          }
+        }
+      }
+    }
     return this.resumeSessionInternal(sessionId, message, { forceRestart: false })
   }
 
@@ -1463,6 +1508,18 @@ export class SessionOrchestrator {
     }
     if (existing && !forceRestart && this.detectAndApplySessionModelSelection(existing)) {
       log.info('resumeSessionInternal: session model selection drift detected, skipping fast path for full restart', { sessionId })
+      forceRestart = true
+    }
+    if (
+      existing
+      && !forceRestart
+      && existing.session.getReasoningEffort() !== existing.launchReasoningEffort
+    ) {
+      log.info('resumeSessionInternal: reasoning effort changed, forcing full restart', {
+        sessionId,
+        launched: existing.launchReasoningEffort,
+        current: existing.session.getReasoningEffort(),
+      })
       forceRestart = true
     }
 
@@ -1555,6 +1612,7 @@ export class SessionOrchestrator {
       policy: null,
       providerMode: null,
       launchModel: null,
+      launchReasoningEffort: null,
       spawnErrorCount: existing?.spawnErrorCount ?? 0,
       completionFired: false,
     }

@@ -17,6 +17,7 @@ import type {
   SessionContextState,
   SessionContextTelemetry,
   CompactContinuationContext,
+  CodexReasoningEffort,
   EvoseRelayEvent,
   EvoseProgressBlock,
   EvoseToolCallBlock,
@@ -170,6 +171,7 @@ export class ManagedSession {
   private executionContext: SessionExecutionContext | null = null
   private compactContinuationContext: CompactContinuationContext | null = null
   private pendingCompact = false
+  private modelReasoningEffort: CodexReasoningEffort | null = null
   /** Estimated token count of the continuation system prompt injected after compact. */
   private postCompactTokens = 0
 
@@ -590,6 +592,14 @@ export class ManagedSession {
 
   isPendingCompact(): boolean {
     return this.pendingCompact
+  }
+
+  getReasoningEffort(): CodexReasoningEffort | null {
+    return this.modelReasoningEffort
+  }
+
+  setReasoningEffort(effort: CodexReasoningEffort | null): void {
+    this.modelReasoningEffort = effort
   }
 
   clearPendingCompact(): void {
@@ -1037,6 +1047,7 @@ export class ManagedSession {
         ? { ...this.compactContinuationContext }
         : null,
       pendingCompact: this.pendingCompact,
+      modelReasoningEffort: this.modelReasoningEffort,
     }
   }
 
@@ -1152,6 +1163,9 @@ export class ManagedSession {
     }
     session.pendingCompact = info.pendingCompact ?? false
     session.compactContinuationContext = info.compactContinuationContext ?? null
+    if (info.modelReasoningEffort != null) {
+      session.modelReasoningEffort = info.modelReasoningEffort
+    }
     return session
   }
 }

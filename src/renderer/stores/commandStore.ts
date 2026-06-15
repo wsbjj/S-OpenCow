@@ -43,6 +43,7 @@ import type {
   SetSessionModelInput,
   UserMessageContent,
   TodoWriteItem,
+  CodexReasoningEffort,
 } from '@shared/types'
 import { getAppAPI } from '@/windowAPI'
 import { perfEnabled, perfLog, perfWarn } from '@/lib/perfLogger'
@@ -226,6 +227,7 @@ export interface CommandStore {
   /** Raw session start — IPC only, no cross-store side effects. */
   startSessionRaw: (input: StartSessionInput) => Promise<string>
   setSessionModel: (sessionId: string, selection: SetSessionModelInput) => Promise<boolean>
+  setSessionReasoningEffort: (sessionId: string, effort: CodexReasoningEffort | null) => Promise<boolean>
   sendMessage: (sessionId: string, content: UserMessageContent) => Promise<boolean>
   resumeSession: (sessionId: string, content: UserMessageContent) => Promise<boolean>
   stopSession: (sessionId: string) => Promise<boolean>
@@ -983,6 +985,25 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
 
     try {
       const result = await getAppAPI()['command:set-session-model'](sessionId, selection)
+      if (!result && previous) {
+        get().upsertManagedSession(previous)
+      }
+      return result
+    } catch (error) {
+      if (previous) {
+        get().upsertManagedSession(previous)
+      }
+      throw error
+    }
+  },
+
+  setSessionReasoningEffort: async (sessionId, effort) => {
+    const previous = get().sessionById[sessionId]
+    if (previous) {
+      get().upsertManagedSession({ ...previous, modelReasoningEffort: effort, lastActivity: Date.now() })
+    }
+    try {
+      const result = await getAppAPI()['command:set-session-reasoning-effort'](sessionId, effort)
       if (!result && previous) {
         get().upsertManagedSession(previous)
       }

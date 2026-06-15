@@ -15,7 +15,7 @@ import type { ManagedSession } from './managedSession'
 import type { SessionLifecycle } from './sessionLifecycle'
 import type { ConversationEventPipeline } from '../conversation/pipeline'
 import type { NativeToolDescriptor } from '../nativeCapabilities/types'
-import type { ApiProvider, StartSessionPolicy, SessionStopReason } from '../../src/shared/types'
+import type { ApiProvider, CodexReasoningEffort, StartSessionPolicy, SessionStopReason } from '../../src/shared/types'
 
 // ── Completion tracking ──────────────────────────────────────────────────────
 
@@ -44,6 +44,9 @@ export interface SessionRuntime {
 
   /** Model option frozen at lifecycle spawn — used to detect session model drift. */
   launchModel: string | null
+
+  /** Reasoning effort frozen at lifecycle spawn — used to detect mid-session effort drift (Codex only). */
+  launchReasoningEffort: CodexReasoningEffort | null
 
   /** Consecutive transient spawn-error count — reset on successful stream start. */
   spawnErrorCount: number

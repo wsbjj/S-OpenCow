@@ -12,6 +12,7 @@ import { AttachmentPreviewList } from '../../ui/AttachmentPreviewList'
 import { StopButtonPopover } from '../../ui/StopButtonPopover'
 import type { SessionControlProps } from '../../ui/StopButtonPopover'
 import { ModelSwitcher, type ModelSwitcherProps } from '../../ui/ModelSwitcher'
+import { ReasoningEffortSwitcher } from '../../ui/ReasoningEffortSwitcher'
 import { ContextWindowRing } from '../../ui/ContextWindowRing'
 import { registerSessionInputFocus, unregisterSessionInputFocus } from '../../../hooks/useSlashFocusShortcut'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
@@ -21,7 +22,7 @@ import { resolveContextDisplayState } from '@shared/contextDisplay'
 import { useProjectScope } from '@/contexts/ProjectScopeContext'
 import { useContextFilesEditorSync } from '@/hooks/useContextFilesEditorSync'
 import { FILE_INPUT_ACCEPT } from '@/lib/attachmentUtils'
-import type { AIEngineKind, UserMessageContent } from '@shared/types'
+import type { AIEngineKind, UserMessageContent, CodexReasoningEffort } from '@shared/types'
 import { ATTACHMENT_LIMITS } from '@shared/types'
 import type { SlashItem } from '@shared/slashItems'
 
@@ -37,6 +38,13 @@ interface SessionInputBarProps {
   sessionControl?: SessionControlProps
   /** Optional session/new-chat model switcher state. */
   modelSelection?: Pick<ModelSwitcherProps, 'value' | 'options' | 'onChange' | 'disabled'>
+  /** Optional reasoning effort switcher (Codex sessions only). */
+  reasoningEffortSelection?: {
+    value: CodexReasoningEffort | null
+    globalDefault: CodexReasoningEffort
+    onChange: (effort: CodexReasoningEffort | null) => void
+    disabled?: boolean
+  }
   /** Session ID for IPC-based native actions (e.g. /compact). */
   sessionId?: string
 }
@@ -57,7 +65,7 @@ export interface SessionInputBarHandle {
  * SessionInputBar's props (onSend, disabled, placeholder, etc.) only change
  * at state transitions (idle → streaming, streaming → idle), NOT on every chunk.
  */
-export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInputBarProps>(function SessionInputBar({ onSend, disabled, placeholder, engineKind, cacheKey, sessionControl, modelSelection, sessionId }: SessionInputBarProps, ref): React.JSX.Element {
+export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInputBarProps>(function SessionInputBar({ onSend, disabled, placeholder, engineKind, cacheKey, sessionControl, modelSelection, reasoningEffortSelection, sessionId }: SessionInputBarProps, ref): React.JSX.Element {
   const { t } = useTranslation('sessions')
   const { t: tCommon } = useTranslation('common')
   const { projectPath } = useProjectScope()
@@ -275,6 +283,18 @@ export const SessionInputBar = memo(forwardRef<SessionInputBarHandle, SessionInp
             options={modelSelection.options}
             onChange={modelSelection.onChange}
             disabled={modelSelection.disabled}
+            size="sm"
+            dropdownPosition="above"
+            className="shrink-0"
+          />
+        )}
+
+        {reasoningEffortSelection && (
+          <ReasoningEffortSwitcher
+            value={reasoningEffortSelection.value}
+            globalDefault={reasoningEffortSelection.globalDefault}
+            onChange={reasoningEffortSelection.onChange}
+            disabled={reasoningEffortSelection.disabled}
             size="sm"
             dropdownPosition="above"
             className="shrink-0"

@@ -575,6 +575,10 @@ export interface IPCChannels {
     args: [sessionId: string]
     return: boolean
   }
+  'command:set-session-reasoning-effort': {
+    args: [sessionId: string, effort: CodexReasoningEffort | null]
+    return: boolean
+  }
   'command:answer-question': {
     args: [sessionId: string, requestId: string, answer: string]
     return: boolean
@@ -3346,6 +3350,8 @@ export interface SessionSnapshot {
   compactContinuationContext?: CompactContinuationContext | null
   /** When true, the next lifecycle start must use startThread() not resumeThread(). */
   pendingCompact?: boolean
+  /** Session-level reasoning effort override (Codex only). null = use global default. */
+  modelReasoningEffort?: CodexReasoningEffort | null
 }
 
 /**
