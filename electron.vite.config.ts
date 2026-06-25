@@ -14,6 +14,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        // zlib-sync is a native (.node) addon loaded lazily by @discordjs/ws for
+        // WebSocket compression. It cannot be bundled, so keep it external — the
+        // runtime `import('zlib-sync')` is preserved and resolved from node_modules.
+        external: ['zlib-sync'],
         input: {
           index: resolve(__dirname, 'electron/main.ts')
         }
