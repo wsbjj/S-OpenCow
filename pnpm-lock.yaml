@@ -18,7 +18,8 @@ overrides:
   '@hono/node-server': ^1.19.10
   express-rate-limit: ^8.2.2
   flatted: ^3.4.2
-  undici@<7: ^6.24.0
+  undici@<6.27.0: '>=6.27.0'
+  undici@>=7.0.0 <7.24.0: '>=7.24.0'
   path-to-regexp@>=8.0.0 <8.4.0: ^8.4.0
   brace-expansion@<1.1.13: '>=1.1.13'
   brace-expansion@>=2.0.0 <2.0.3: '>=2.0.3'
@@ -63,10 +64,7 @@ overrides:
   dompurify@<=3.4.6: '>=3.4.7'
   markdown-it@<=14.1.1: '>=14.2.0'
   hono@<4.12.25: '>=4.12.25'
-  undici@>=7.23.0 <7.28.0: '>=7.28.0'
   dompurify@<=3.4.10: '>=3.4.11'
-  undici@>=7.0.0 <7.28.0: '>=7.28.0'
-  undici@<6.27.0: '>=6.27.0'
   hono@<4.12.14: '>=4.12.14'
 
 importers:
@@ -260,8 +258,8 @@ importers:
         specifier: ^6.3.7
         version: 6.3.7
       undici:
-        specifier: '>=7.28.0'
-        version: 8.5.0
+        specifier: ~7.24.0
+        version: 7.24.8
       ws:
         specifier: '>=8.21.0'
         version: 8.21.0
@@ -4467,9 +4465,9 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici@8.5.0:
-    resolution: {integrity: sha512-xamtWoB1EshgjpmlXd7GGm2VfdDtw1+rD8uhry8pSNW3If6S8E0m2T2+orSKeZXEn/aPJMviCpDBA65WJt8zhg==}
-    engines: {node: '>=22.19.0'}
+  undici@7.24.8:
+    resolution: {integrity: sha512-6KQ/+QxK49Z/p3HO6E5ZCZWNnCasyZLa5ExaVYyvPxUwKtbCPMKELJOqh7EqOle0t9cH/7d2TaaTRRa6Nhs4YQ==}
+    engines: {node: '>=20.18.1'}
 
   unified@11.0.5:
     resolution: {integrity: sha512-xKvGhPWw3k84Qjh8bI3ZeJjqnyadK+GEFtazSfZv/rKeTkTjOJho6mFqh2SM96iIcZokxiOpg78GazTSg8+KHA==}
@@ -5061,7 +5059,7 @@ snapshots:
       discord-api-types: 0.38.42
       magic-bytes.js: 1.13.0
       tslib: 2.8.1
-      undici: 8.5.0
+      undici: 7.24.8
 
   '@discordjs/util@1.2.0':
     dependencies:
@@ -5152,7 +5150,7 @@ snapshots:
       semver: 7.7.4
       sumchecker: 3.0.1
     optionalDependencies:
-      undici: 8.5.0
+      undici: 7.24.8
     transitivePeerDependencies:
       - supports-color
 
@@ -7078,7 +7076,7 @@ snapshots:
       lodash.snakecase: 4.1.1
       magic-bytes.js: 1.13.0
       tslib: 2.8.1
-      undici: 8.5.0
+      undici: 7.24.8
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -7931,7 +7929,7 @@ snapshots:
       saxes: 6.0.0
       symbol-tree: 3.2.4
       tough-cookie: 6.0.0
-      undici: 8.5.0
+      undici: 7.24.8
       w3c-xmlserializer: 5.0.0
       webidl-conversions: 8.0.1
       whatwg-mimetype: 5.0.0
@@ -8610,7 +8608,7 @@ snapshots:
       semver: 7.7.4
       tar: 7.5.16
       tinyglobby: 0.2.15
-      undici: 8.5.0
+      undici: 7.24.8
       which: 6.0.1
 
   node-pty@1.1.0:
@@ -9503,7 +9501,7 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@8.5.0: {}
+  undici@7.24.8: {}
 
   unified@11.0.5:
     dependencies:
