@@ -123,45 +123,36 @@ export class GitLabAdapter implements RemoteWriteAdapter {
   // ── Phase 2: Write operations ───────────────────────────────────────────
 
   async createIssue(input: CreateRemoteIssueInput): Promise<RemoteIssue> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const item = await this.gitlab.Issues.create(this.projectPath, {
-      title: input.title,
+    const item = await this.gitlab.Issues.create(this.projectPath, input.title, {
       description: input.body,
       labels: input.labels?.join(','),
-      assigneeIds: undefined, // GitLab uses numeric IDs — handled at service layer
       milestoneId: input.milestone ?? undefined,
-    } as any)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return mapGitLabIssue(item as any)
+    })
+    return mapGitLabIssue(item as GitLabIssueData)
   }
 
   async updateIssue(number: number, input: UpdateRemoteIssueInput): Promise<RemoteIssue> {
-    const params: Record<string, unknown> = {}
+    const params: { title?: string; description?: string; labels?: string; milestoneId?: number } = {}
     if (input.title !== undefined) params.title = input.title
     if (input.body !== undefined) params.description = input.body
     if (input.labels !== undefined) params.labels = input.labels.join(',')
     if (input.milestone !== undefined) params.milestoneId = input.milestone ?? 0 // 0 removes milestone in GitLab
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const item = await this.gitlab.Issues.edit(this.projectPath, number, params as any)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return mapGitLabIssue(item as any)
+    const item = await this.gitlab.Issues.edit(this.projectPath, number, params)
+    return mapGitLabIssue(item as GitLabIssueData)
   }
 
   async closeIssue(number: number): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await this.gitlab.Issues.edit(this.projectPath, number, { stateEvent: 'close' } as any)
+    await this.gitlab.Issues.edit(this.projectPath, number, { stateEvent: 'close' })
   }
 
   async reopenIssue(number: number): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await this.gitlab.Issues.edit(this.projectPath, number, { stateEvent: 'reopen' } as any)
+    await this.gitlab.Issues.edit(this.projectPath, number, { stateEvent: 'reopen' })
   }
 
   async createComment(issueNumber: number, body: string): Promise<RemoteComment> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const item = await this.gitlab.IssueNotes.create(this.projectPath, issueNumber, body) as any
-    return mapGitLabComment(item)
+    const item = await this.gitlab.IssueNotes.create(this.projectPath, issueNumber, body)
+    return mapGitLabComment(item as GitLabCommentData)
   }
 
   async listComments(
@@ -179,15 +170,16 @@ export class GitLabAdapter implements RemoteWriteAdapter {
       showExpanded: true,
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response = await this.gitlab.IssueNotes.all(this.projectPath, issueNumber, params as any) as any
-    const items = Array.isArray(response.data) ? response.data : (Array.isArray(response) ? response : [])
+    const response = await this.gitlab.IssueNotes.all(this.projectPath, issueNumber, params) as unknown as {
+      data?: GitLabCommentData[]
+      paginationInfo?: { next?: number | null }
+    }
+    const items = Array.isArray(response.data) ? response.data : (Array.isArray(response) ? response as GitLabCommentData[] : [])
     const paginationInfo = response.paginationInfo
 
     // Filter out system notes (GitLab returns status-change notes alongside user comments)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const comments: RemoteComment[] = items
-      .filter((n: any) => !n.system)
+      .filter((n) => !n.system)
       .map(mapGitLabComment)
 
     const hasNextPage = paginationInfo
@@ -237,17 +229,15 @@ interface GitLabCommentData {
   system?: boolean
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapGitLabComment(item: any): RemoteComment {
-  const data = item as GitLabCommentData
+function mapGitLabComment(item: GitLabCommentData): RemoteComment {
   return {
-    id: String(data.id),
-    body: data.body ?? '',
-    authorLogin: data.author?.username ?? '',
-    authorName: data.author?.name ?? data.author?.username ?? '',
-    authorAvatar: data.author?.avatar_url ?? '',
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
+    id: String(item.id),
+    body: item.body ?? '',
+    authorLogin: item.author?.username ?? '',
+    authorName: item.author?.name ?? item.author?.username ?? '',
+    authorAvatar: item.author?.avatar_url ?? '',
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
   }
 }
 

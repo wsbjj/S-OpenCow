@@ -80,7 +80,7 @@ export class IssueHandler {
       await ctx.answerCallbackQuery()
       const chatId = String(ctx.callbackQuery.message?.chat?.id ?? 0)
       await this.deps.sendToChat(chatId, this.buildFilterKeyboard())
-    } catch (err) {
+    } catch (_err) {
       await this.safeAnswerError(ctx, 'Failed to load, please retry')
     }
   }
@@ -105,7 +105,7 @@ export class IssueHandler {
       })
 
       await this.deps.sendToChat(chatId, this.formatIssueList(issues, status, chatCtx.activeProjectName))
-    } catch (err) {
+    } catch (_err) {
       await this.safeAnswerError(ctx, 'Failed to load, please retry')
     }
   }
@@ -127,7 +127,7 @@ export class IssueHandler {
           selective: true,
         },
       })
-    } catch (err) {
+    } catch (_err) {
       await this.safeAnswerError(ctx, 'Operation failed, please retry')
     }
   }

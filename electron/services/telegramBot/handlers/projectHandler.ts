@@ -46,7 +46,7 @@ export class ProjectHandler {
       // Archived projects are excluded from the daily workflow view
 
       await this.deps.sendToChat(chatId, this.formatProjectList(pinned, regular))
-    } catch (err) {
+    } catch (_err) {
       await this.safeAnswerError(ctx, 'Failed to load, please retry')
     }
   }
@@ -88,7 +88,7 @@ export class ProjectHandler {
         parse_mode: 'HTML',
         reply_markup: { inline_keyboard: buttons },
       })
-    } catch (err) {
+    } catch (_err) {
       await this.safeAnswerError(ctx, 'Failed to load, please retry')
     }
   }
@@ -129,7 +129,7 @@ export class ProjectHandler {
         ].join('\n'),
         parse_mode: 'HTML',
       })
-    } catch (err) {
+    } catch (_err) {
       await this.safeAnswerError(ctx, 'Switch failed, please retry')
     }
   }

@@ -9,7 +9,6 @@
 
 import type {
   SessionOrigin,
-  IMPlatformType,
   DataBusEvent,
   AppSettings,
 } from '../../../src/shared/types'

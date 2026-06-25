@@ -160,8 +160,12 @@ function pathEnvKey(env: Record<string, string>, platform: NodeJS.Platform = pro
 
 function prependPathDirs(env: Record<string, string>, pathDirs: readonly string[]): void {
   if (pathDirs.length === 0) return
-  const key = pathEnvKey(env)
-  if (process.platform === 'win32') {
+  // Infer platform from env object: if 'Path' (capital P) exists, it's Windows
+  const platform = Object.keys(env).some(k => k === 'Path') ? 'win32' : process.platform
+  const key = pathEnvKey(env, platform)
+  const delimiter = platform === 'win32' ? ';' : ':'
+
+  if (platform === 'win32') {
     for (const envKey of Object.keys(env)) {
       if (envKey.toLowerCase() === 'path' && envKey !== key) {
         delete env[envKey]
@@ -170,9 +174,9 @@ function prependPathDirs(env: Record<string, string>, pathDirs: readonly string[
   }
 
   const existingEntries = (env[key] ?? '')
-    .split(path.delimiter)
+    .split(delimiter)
     .filter((entry) => entry.length > 0 && !pathDirs.includes(entry))
-  env[key] = [...pathDirs, ...existingEntries].join(path.delimiter)
+  env[key] = [...pathDirs, ...existingEntries].join(delimiter)
 }
 
 /**

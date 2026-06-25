@@ -19,7 +19,6 @@
  * @module
  */
 
-import { useTranslation } from 'react-i18next'
 import { useCreatorModalBehavior, type CreatorModalBehaviorHandle } from '@/hooks/useCreatorModalBehavior'
 import { CreatorModalShell, type CreatorModalDiscardLabels } from './CreatorModalShell'
 import { CreatorEmptyState } from './CreatorEmptyState'
