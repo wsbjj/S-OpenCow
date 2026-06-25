@@ -84,7 +84,7 @@
     "@xterm/xterm": "^6.0.0",
     "ai": "^6.0.202",
     "beautiful-mermaid": "^1.0.2",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^12.11.1",
     "chokidar": "^5.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -116,7 +116,6 @@
     "undici": "~7.24.0",
     "ws": "^8.19.0",
     "yaml": "^2.8.3",
-    "zlib-sync": "^0.1.10",
     "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },
