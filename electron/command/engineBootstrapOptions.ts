@@ -28,6 +28,13 @@ interface CodexPlatformTarget {
   binaryName: string
 }
 
+export interface ResolvedCodexCliPath {
+  executablePath: string
+  pathDirs: string[]
+}
+
+type CodexCliPathResolverResult = string | ResolvedCodexCliPath | undefined
+
 export interface EngineBootstrapDeps {
   getProviderDefaultModel: (engineKind: AIEngineKind) => string | undefined
   getProviderDefaultReasoningEffort: (engineKind: AIEngineKind) => CodexReasoningEffort | undefined
@@ -62,7 +69,7 @@ type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
 export interface EngineBootstrapRegistryOptions {
   claudeCliPathResolver?: () => string | undefined
-  codexCliPathResolver?: () => string | undefined
+  codexCliPathResolver?: () => CodexCliPathResolverResult
 }
 
 function resolveCodexPlatformTarget(): CodexPlatformTarget | null {
@@ -128,6 +135,46 @@ function toAsarUnpackedPath(filePath: string): string {
   return filePath.replace('app.asar', 'app.asar.unpacked')
 }
 
+function resolveExecutablePath(filePath: string, pathExists: (filePath: string) => boolean): string | undefined {
+  const unpackedPath = toAsarUnpackedPath(filePath)
+  if (pathExists(unpackedPath)) return unpackedPath
+  if (filePath.includes('app.asar') && !filePath.includes('app.asar.unpacked')) return undefined
+  if (pathExists(filePath)) return filePath
+  return undefined
+}
+
+function resolveDirectoryPath(dirPath: string, pathExists: (filePath: string) => boolean): string | undefined {
+  const unpackedPath = toAsarUnpackedPath(dirPath)
+  if (pathExists(unpackedPath)) return unpackedPath
+  if (dirPath.includes('app.asar') && !dirPath.includes('app.asar.unpacked')) return undefined
+  if (pathExists(dirPath)) return dirPath
+  return undefined
+}
+
+function pathEnvKey(env: Record<string, string>, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== 'win32') return 'PATH'
+  const matchingKeys = Object.keys(env).filter((key) => key.toLowerCase() === 'path')
+  if (matchingKeys.includes('Path')) return 'Path'
+  return matchingKeys.at(-1) ?? 'PATH'
+}
+
+function prependPathDirs(env: Record<string, string>, pathDirs: readonly string[]): void {
+  if (pathDirs.length === 0) return
+  const key = pathEnvKey(env)
+  if (process.platform === 'win32') {
+    for (const envKey of Object.keys(env)) {
+      if (envKey.toLowerCase() === 'path' && envKey !== key) {
+        delete env[envKey]
+      }
+    }
+  }
+
+  const existingEntries = (env[key] ?? '')
+    .split(path.delimiter)
+    .filter((entry) => entry.length > 0 && !pathDirs.includes(entry))
+  env[key] = [...pathDirs, ...existingEntries].join(path.delimiter)
+}
+
 /**
  * Resolve the path to the SDK's bundled cli.js.
  *
@@ -147,27 +194,55 @@ export function resolveClaudeCliPath(): string | undefined {
  * Resolve the native Codex executable path and normalize it to app.asar.unpacked
  * in production so child_process.spawn executes a real filesystem path.
  */
-export function resolveCodexCliPath(): string | undefined {
+export function resolveCodexCliPathFromPackageDir(params: {
+  packageDir: string
+  targetTriple: string
+  binaryName: string
+  pathExists?: (filePath: string) => boolean
+}): ResolvedCodexCliPath | undefined {
+  const pathExists = params.pathExists ?? existsSync
+  const packageRoot = path.join(params.packageDir, 'vendor', params.targetTriple)
+  const candidates = [
+    {
+      executablePath: path.join(packageRoot, 'bin', params.binaryName),
+      pathDir: path.join(packageRoot, 'codex-path'),
+    },
+    {
+      executablePath: path.join(packageRoot, 'codex', params.binaryName),
+      pathDir: path.join(packageRoot, 'path'),
+    },
+  ]
+
+  for (const candidate of candidates) {
+    const executablePath = resolveExecutablePath(candidate.executablePath, pathExists)
+    if (!executablePath) continue
+    const pathDir = resolveDirectoryPath(candidate.pathDir, pathExists)
+    return {
+      executablePath,
+      pathDirs: pathDir ? [pathDir] : [],
+    }
+  }
+
+  return undefined
+}
+
+function resolveCodexCliPathInfo(): ResolvedCodexCliPath | undefined {
   const target = resolveCodexPlatformTarget()
   if (!target) return undefined
-
   try {
     const platformPackageJson = require.resolve(`${target.platformPackage}/package.json`)
-    const candidate = path.join(
-      path.dirname(platformPackageJson),
-      'vendor',
-      target.targetTriple,
-      'codex',
-      target.binaryName,
-    )
-
-    const unpackedCandidate = toAsarUnpackedPath(candidate)
-    if (existsSync(unpackedCandidate)) return unpackedCandidate
-    if (existsSync(candidate)) return candidate
-    return undefined
+    return resolveCodexCliPathFromPackageDir({
+      packageDir: path.dirname(platformPackageJson),
+      targetTriple: target.targetTriple,
+      binaryName: target.binaryName,
+    })
   } catch {
     return undefined
   }
+}
+
+export function resolveCodexCliPath(): string | undefined {
+  return resolveCodexCliPathInfo()?.executablePath
 }
 
 function applySharedSessionOverrides(ctx: EngineBootstrapContext): void {
@@ -247,9 +322,9 @@ class ClaudeEngineBootstrapper implements EngineBootstrapper {
 }
 
 class CodexEngineBootstrapper implements EngineBootstrapper {
-  private readonly resolveCliPath: () => string | undefined
+  private readonly resolveCliPath: () => CodexCliPathResolverResult
 
-  constructor(resolveCliPath: () => string | undefined) {
+  constructor(resolveCliPath: () => CodexCliPathResolverResult) {
     this.resolveCliPath = resolveCliPath
   }
 
@@ -275,7 +350,11 @@ class CodexEngineBootstrapper implements EngineBootstrapper {
 
     const codexCliPath = this.resolveCliPath()
     if (codexCliPath) {
-      ctx.options.codexPathOverride = codexCliPath
+      const resolved = typeof codexCliPath === 'string'
+        ? { executablePath: codexCliPath, pathDirs: [] }
+        : codexCliPath
+      ctx.options.codexPathOverride = resolved.executablePath
+      prependPathDirs(ctx.options.env, resolved.pathDirs)
     } else {
       ctx.logger.warn('Failed to resolve Codex CLI binary path override; falling back to SDK auto-discovery')
     }
@@ -340,7 +419,7 @@ export class EngineBootstrapRegistry {
   constructor(options?: EngineBootstrapRegistryOptions) {
     this.bootstrappers = {
       claude: new ClaudeEngineBootstrapper(options?.claudeCliPathResolver ?? resolveClaudeCliPath),
-      codex: new CodexEngineBootstrapper(options?.codexCliPathResolver ?? resolveCodexCliPath),
+      codex: new CodexEngineBootstrapper(options?.codexCliPathResolver ?? resolveCodexCliPathInfo),
     }
   }
 

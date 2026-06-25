@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi } from 'vitest'
-import { homedir } from 'node:os'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { homedir, tmpdir } from 'node:os'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 
 vi.mock('electron', () => ({
   app: {
@@ -11,8 +13,15 @@ vi.mock('electron', () => ({
 import type { ManagedSessionRuntimeConfig } from '../../../electron/command/managedSession'
 import {
   EngineBootstrapRegistry,
+  resolveCodexCliPathFromPackageDir,
   type EngineBootstrapDeps,
 } from '../../../electron/command/engineBootstrapOptions'
+
+const tempDirs: string[] = []
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+})
 
 function createConfig(overrides?: Partial<ManagedSessionRuntimeConfig>): ManagedSessionRuntimeConfig {
   return {
@@ -31,6 +40,133 @@ function createDeps(overrides?: Partial<EngineBootstrapDeps>): EngineBootstrapDe
     ...overrides,
   }
 }
+
+async function makeTempPackageDir(prefix: string): Promise<string> {
+  const root = path.join(tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  await mkdir(root, { recursive: true })
+  tempDirs.push(root)
+  return root
+}
+
+async function touch(filePath: string): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true })
+  await writeFile(filePath, '')
+}
+
+function codexPackagePath(packageDir: string, ...parts: string[]): string {
+  return path.join(packageDir, 'vendor', 'x86_64-pc-windows-msvc', ...parts)
+}
+
+describe('resolveCodexCliPathFromPackageDir', () => {
+  it('resolves the current Codex package layout under vendor/<triple>/bin', async () => {
+    const packageDir = await makeTempPackageDir('opencow-codex-current')
+    const executablePath = codexPackagePath(packageDir, 'bin', 'codex.exe')
+    const pathDir = codexPackagePath(packageDir, 'codex-path')
+    await touch(executablePath)
+    await mkdir(pathDir, { recursive: true })
+
+    const result = resolveCodexCliPathFromPackageDir({
+      packageDir,
+      targetTriple: 'x86_64-pc-windows-msvc',
+      binaryName: 'codex.exe',
+    })
+
+    expect(result).toEqual({
+      executablePath,
+      pathDirs: [pathDir],
+    })
+  })
+
+  it('keeps compatibility with the legacy vendor/<triple>/codex layout', async () => {
+    const packageDir = await makeTempPackageDir('opencow-codex-legacy')
+    const executablePath = codexPackagePath(packageDir, 'codex', 'codex.exe')
+    const pathDir = codexPackagePath(packageDir, 'path')
+    await touch(executablePath)
+    await mkdir(pathDir, { recursive: true })
+
+    const result = resolveCodexCliPathFromPackageDir({
+      packageDir,
+      targetTriple: 'x86_64-pc-windows-msvc',
+      binaryName: 'codex.exe',
+    })
+
+    expect(result).toEqual({
+      executablePath,
+      pathDirs: [pathDir],
+    })
+  })
+
+  it('normalizes app.asar executable candidates to app.asar.unpacked', () => {
+    const packageDir = path.join(
+      'C:',
+      'OpenCow',
+      'resources',
+      'app.asar',
+      'node_modules',
+      '@openai',
+      'codex-win32-x64',
+    )
+    const expectedExecutable = path.join(
+      'C:',
+      'OpenCow',
+      'resources',
+      'app.asar.unpacked',
+      'node_modules',
+      '@openai',
+      'codex-win32-x64',
+      'vendor',
+      'x86_64-pc-windows-msvc',
+      'bin',
+      'codex.exe',
+    )
+    const expectedPathDir = path.join(
+      'C:',
+      'OpenCow',
+      'resources',
+      'app.asar.unpacked',
+      'node_modules',
+      '@openai',
+      'codex-win32-x64',
+      'vendor',
+      'x86_64-pc-windows-msvc',
+      'codex-path',
+    )
+    const existing = new Set([expectedExecutable, expectedPathDir])
+
+    const result = resolveCodexCliPathFromPackageDir({
+      packageDir,
+      targetTriple: 'x86_64-pc-windows-msvc',
+      binaryName: 'codex.exe',
+      pathExists: (filePath) => existing.has(filePath),
+    })
+
+    expect(result).toEqual({
+      executablePath: expectedExecutable,
+      pathDirs: [expectedPathDir],
+    })
+  })
+
+  it('does not return an app.asar executable path when the unpacked file is missing', () => {
+    const packageDir = path.join(
+      'C:',
+      'OpenCow',
+      'resources',
+      'app.asar',
+      'node_modules',
+      '@openai',
+      'codex-win32-x64',
+    )
+
+    const result = resolveCodexCliPathFromPackageDir({
+      packageDir,
+      targetTriple: 'x86_64-pc-windows-msvc',
+      binaryName: 'codex.exe',
+      pathExists: (filePath) => filePath.includes('app.asar') && !filePath.includes('app.asar.unpacked'),
+    })
+
+    expect(result).toBeUndefined()
+  })
+})
 
 describe('EngineBootstrapRegistry', () => {
   it('applies shared overrides and Claude cli path', async () => {
@@ -127,6 +263,38 @@ describe('EngineBootstrapRegistry', () => {
       wire_api: 'responses',
       requires_openai_auth: true,
     })
+  })
+
+  it('adds resolved Codex helper directories to PATH when using the native binary override', async () => {
+    const registry = new EngineBootstrapRegistry({
+      codexCliPathResolver: () => ({
+        executablePath: 'C:\\OpenCow\\codex.exe',
+        pathDirs: ['C:\\OpenCow\\codex-path'],
+      }),
+    })
+    const options: Record<string, unknown> = {
+      permissionMode: 'default',
+      env: {
+        Path: 'C:\\Windows\\System32',
+      },
+    }
+
+    await registry.apply({
+      engineKind: 'codex',
+      config: createConfig(),
+      sessionEnv: {
+        OPENAI_API_KEY: 'env-openai-key',
+      },
+      options,
+      deps: createDeps(),
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+      },
+    })
+
+    expect(options.codexPathOverride).toBe('C:\\OpenCow\\codex.exe')
+    expect((options.env as Record<string, string>).Path).toBe('C:\\OpenCow\\codex-path;C:\\Windows\\System32')
   })
 
   it('preserves pre-existing codexConfig fields when injecting managed provider', async () => {
